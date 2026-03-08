@@ -714,6 +714,7 @@ function setupDatabaseManager() {
     const modal = document.getElementById('db-modal');
     const addForm = document.getElementById('db-add-form');
     const tableBody = document.getElementById('db-table-body');
+    const resetBtn = document.getElementById('db-reset-all');
 
     const openModal = () => {
         modal.classList.remove('modal-hidden');
@@ -775,6 +776,30 @@ function setupDatabaseManager() {
         } catch (error) {
             console.error('Error agregando vuelo manual:', error);
             alert('No se pudo agregar el vuelo manualmente.');
+        }
+    });
+
+    resetBtn?.addEventListener('click', async () => {
+        const shouldReset = confirm('Esto eliminará TODOS los vuelos de la base de datos. ¿Continuar?');
+        if (!shouldReset) return;
+
+        try {
+            const snapshot = await getDocs(collection(window.db, 'flights'));
+            if (snapshot.empty) {
+                alert('La base ya está vacía.');
+                return;
+            }
+
+            for (const docSnapshot of snapshot.docs) {
+                await deleteDoc(docSnapshot.ref);
+            }
+
+            await loadFlights();
+            renderDatabaseTable(allFlights);
+            alert('Base de datos reseteada. Ahora está vacía.');
+        } catch (error) {
+            console.error('Error reseteando la base de datos:', error);
+            alert('No se pudo resetear la base de datos.');
         }
     });
 

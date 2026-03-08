@@ -145,7 +145,11 @@
         <div id="db-manager" role="dialog" aria-modal="true" aria-labelledby="db-title">
             <button id="close-db-manager" type="button" aria-label="Cerrar">x</button>
             <h2 id="db-title">Gestor de Base de Datos</h2>
-            <p class="db-subtitle">Edita, elimina y agrega vuelos manualmente.</p>
+            <p class="db-subtitle">Edita, elimina y agrega vuelos manualmente. La base inicia vacía.</p>
+
+            <div id="db-tools">
+                <button id="db-reset-all" type="button">Resetear Base de Datos</button>
+            </div>
 
             <form id="db-add-form">
                 <label for="db-flight-number">Número de Vuelo</label>

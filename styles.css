@@ -486,6 +486,30 @@ h1 {
     font-size: 0.82rem;
 }
 
+#db-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 0.7rem 0;
+}
+
+#db-reset-all {
+    border: 1px solid #3a1d1d;
+    background: #1b0f0f;
+    color: #ffb4b4;
+    border-radius: 9px;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+}
+
+#db-reset-all:hover {
+    background: #281313;
+    border-color: #5a2727;
+}
+
 #db-add-form {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
