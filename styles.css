@@ -157,12 +157,75 @@ h1 {
     padding: 0.95rem;
 }
 
+#map-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    margin: 0.1rem 0 0.8rem 0.2rem;
+}
+
 #map-container h2 {
     margin: 0.1rem 0 0.8rem 0.2rem;
     font-size: 0.84rem;
     text-transform: uppercase;
     letter-spacing: 0.09em;
     color: #8c8c8c;
+}
+
+#map-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+#toggle-animated-mode, #toggle-heatmap {
+    border: 1px solid #2f2f2f;
+    border-radius: 999px;
+    background: #121212;
+    color: #e9e9e9;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+#toggle-animated-mode.active, #toggle-heatmap.active {
+    background: #ffffff;
+    color: #090909;
+}
+
+#timeline-status {
+    color: #8f8f8f;
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+}
+
+#heatmap-status {
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    padding: 0.22rem 0.56rem;
+    border-radius: 999px;
+    border: 1px solid #2f2f2f;
+    background: #121212;
+}
+
+#heatmap-status.status-idle {
+    color: #a3a3a3;
+}
+
+#heatmap-status.status-loading {
+    color: #fbbf24;
+}
+
+#heatmap-status.status-ok {
+    color: #34d399;
+}
+
+#heatmap-status.status-error {
+    color: #fb7185;
 }
 
 #map {
@@ -725,6 +788,16 @@ form button:disabled {
 }
 
 @media (max-width: 640px) {
+    #map-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    #map-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
     body {
         padding: 12px;
     }

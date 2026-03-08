@@ -8,6 +8,17 @@ let currentPeriod = 'total'; // Período actual seleccionado
 let currentTripType = 'all'; // Tipo de viaje seleccionado
 let currentFlightData = null; // Datos del vuelo actual cargado desde la BD
 let flightLines = []; // Almacenar las líneas de vuelo
+let lastFilteredFlights = []; // Snapshot para modo animado
+let isAnimationMode = false;
+let animationTimerId = null;
+
+// Constantes para equivalentes de distancia
+const EARTH_CIRCUMFERENCE_KM = 40075; // Circunferencia de la tierra
+const MOON_DISTANCE_KM = 384400; // Distancia promedio a la luna
+
+// Variables de control para modos de visualización
+let isHeatmapMode = false;
+let heatmapLayer = null;
 
 // Base de datos de vuelos simulados
 const flightDatabase = {
@@ -83,18 +94,60 @@ const airlineColors = {
     'QF': '#E31837'  // Qantas - Rojo
 };
 
-// Logos publicos por dominio corporativo con fallback visual.
+// Logos embebidos para evitar dependencias de red externas.
 const airlineBrandAssets = {
-    'AM': { logo: 'https://logo.clearbit.com/aeromexico.com' },
-    'AA': { logo: 'https://logo.clearbit.com/aa.com' },
-    'BA': { logo: 'https://logo.clearbit.com/britishairways.com' },
-    'AF': { logo: 'https://logo.clearbit.com/airfrance.com' },
-    'LH': { logo: 'https://logo.clearbit.com/lufthansa.com' },
-    'AZ': { logo: 'https://logo.clearbit.com/ita-airways.com' },
-    'IB': { logo: 'https://logo.clearbit.com/iberia.com' },
-    'KL': { logo: 'https://logo.clearbit.com/klm.com' },
-    'JL': { logo: 'https://logo.clearbit.com/jal.com' },
-    'QF': { logo: 'https://logo.clearbit.com/qantas.com' }
+    'AM': { logo: null },
+    'AA': { logo: null },
+    'BA': { logo: null },
+    'AF': { logo: null },
+    'LH': { logo: null },
+    'AZ': { logo: null },
+    'IB': { logo: null },
+    'KL': { logo: null },
+    'JL': { logo: null },
+    'QF': { logo: null }
+};
+
+// Mapeo de ciudades a países para búsquedas inversas
+const cityToCountryMap = {
+    'Nueva York': 'Estados Unidos',
+    'Miami': 'Estados Unidos',
+    'Chicago': 'Estados Unidos',
+    'Los Ángeles': 'Estados Unidos',
+    'México': 'México',
+    'Londres': 'Reino Unido',
+    'Manchester': 'Reino Unido',
+    'París': 'Francia',
+    'Lyon': 'Francia',
+    'Berlín': 'Alemania',
+    'Múnich': 'Alemania',
+    'Fráncfort': 'Alemania',
+    'Roma': 'Italia',
+    'Milán': 'Italia',
+    'Madrid': 'España',
+    'Barcelona': 'España',
+    'Ámsterdam': 'Países Bajos',
+    'Tokio': 'Japón',
+    'Osaka': 'Japón',
+    'Sídney': 'Australia',
+    'Melbourne': 'Australia',
+    'Buenos Aires': 'Argentina'
+};
+
+// Mapeo de países español a inglés para heatmap (incluyendo variantes)
+const countrySpanishToEnglish = {
+    'Estados Unidos': 'United States of America',
+    'México': 'Mexico',
+    'Reino Unido': 'United Kingdom',
+    'Francia': 'France',
+    'Alemania': 'Germany',
+    'Italia': 'Italy',
+    'España': 'Spain',
+    'Países Bajos': 'Netherlands',
+    'Japón': 'Japan',
+    'Australia': 'Australia',
+    'Argentina': 'Argentina',
+    'Desconocido': 'Unknown'
 };
 
 // Mensaje de inicio
@@ -107,6 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeMap();
     setupFilters();
     setupDatabaseManager();
+    setupAnimationControls();
+    setupHeatmapControls();
     loadFlights();
     setupForm();
 });
@@ -135,6 +190,8 @@ function setupFilters() {
     radios.forEach(radio => {
         radio.addEventListener('change', (e) => {
             currentPeriod = e.target.value;
+            stopAnimationMode(false);
+            removeHeatmap();
             processFlights(allFlights);
         });
     });
@@ -143,9 +200,434 @@ function setupFilters() {
     if (tripTypeFilter) {
         tripTypeFilter.addEventListener('change', (e) => {
             currentTripType = e.target.value;
+            stopAnimationMode(false);
+            removeHeatmap();
             processFlights(allFlights);
         });
     }
+}
+
+function setupAnimationControls() {
+    const toggleBtn = document.getElementById('toggle-animated-mode');
+    if (!toggleBtn) return;
+
+    toggleBtn.addEventListener('click', () => {
+        if (isAnimationMode) {
+            stopAnimationMode(false);
+        } else {
+            startAnimationMode();
+        }
+    });
+}
+
+function setupHeatmapControls() {
+    const heatmapBtn = document.getElementById('toggle-heatmap');
+    if (!heatmapBtn) return;
+
+    setHeatmapStatus('Heatmap apagado', 'idle');
+
+    heatmapBtn.addEventListener('click', () => {
+        if (isHeatmapMode) {
+            removeHeatmap();
+        } else {
+            renderHeatmap();
+        }
+    });
+}
+
+function setHeatmapStatus(message, tone = 'idle') {
+    const statusEl = document.getElementById('heatmap-status');
+    if (!statusEl) return;
+
+    statusEl.textContent = message;
+    statusEl.classList.remove('status-idle', 'status-loading', 'status-ok', 'status-error');
+    statusEl.classList.add(`status-${tone}`);
+}
+
+function renderHeatmap() {
+    if (!map) {
+        setHeatmapStatus('Error: mapa no inicializado', 'error');
+        return;
+    }
+
+    if (!allFlights || allFlights.length === 0) {
+        setHeatmapStatus('No hay vuelos registrados', 'error');
+        return;
+    }
+
+    setHeatmapStatus('Procesando heatmap...', 'loading');
+
+    // Aplicar filtros actuales para obtener vuelos visibles
+    const periodFilteredFlights = getFlightsByPeriod(allFlights, currentPeriod);
+    const filteredFlights = getFlightsByTripType(periodFilteredFlights, currentTripType);
+
+    if (!filteredFlights || filteredFlights.length === 0) {
+        setHeatmapStatus('Sin vuelos para filtros actuales', 'error');
+        return;
+    }
+
+    // Contar vuelos por país (en español)
+    const countryCounts = {};
+    filteredFlights.forEach(flight => {
+        const country = flight.country || 'Desconocido';
+        if (!countryCounts[country]) {
+            countryCounts[country] = 0;
+        }
+        countryCounts[country] += 1;
+    });
+
+    // Convertir a inglés usando el mapping
+    const countryCountsEnglish = {};
+    for (let [spanishName, count] of Object.entries(countryCounts)) {
+        if (!spanishName || typeof spanishName !== 'string') {
+            continue;
+        }
+        const englishName = countrySpanishToEnglish[spanishName] || spanishName;
+        countryCountsEnglish[englishName] = count;
+    }
+
+    if (!countryCountsEnglish || typeof countryCountsEnglish !== 'object' || Object.keys(countryCountsEnglish).length === 0) {
+        setHeatmapStatus('No se pudieron procesar países', 'error');
+        return;
+    }
+
+    const counts = Object.values(countryCountsEnglish).filter(c => typeof c === 'number' && c > 0);
+    if (counts.length === 0) {
+        setHeatmapStatus('No se pudieron mapear países', 'error');
+        return;
+    }
+
+    const maxFlights = Math.max(...counts);
+
+    // GUARDAR en variable del scope para acceso en .then()
+    const countryMapData = { ...countryCountsEnglish };
+    const maxFlightsValue = maxFlights;
+
+    // Cargar GeoJSON de países
+    fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson')
+        .then(res => {
+            if (!res.ok) throw new Error('GeoJSON HTTP ' + res.status);
+            return res.json();
+        })
+        .then(geojson => {
+            if (!geojson.features || geojson.features.length === 0) {
+                throw new Error('GeoJSON sin features');
+            }
+
+            let matchedCountries = 0;
+
+            heatmapLayer = L.geoJSON(geojson, {
+                style: (feature) => {
+                    const geoCountryName = feature.properties?.ADMIN || feature.properties?.name;
+                    if (!geoCountryName) {
+                        return {
+                            fillColor: '#1a1a2e',
+                            weight: 0.5,
+                            opacity: 1,
+                            color: '#000',
+                            fillOpacity: 0.7
+                        };
+                    }
+
+                    const flightCount = findCountryMatch(geoCountryName, countryMapData);
+
+                    if (flightCount > 0) {
+                        matchedCountries++;
+                    }
+
+                    let color = '#1a1a2e'; // Sin vuelos
+                    if (flightCount > 0) {
+                        const intensity = flightCount / maxFlightsValue;
+                        color = getHeatmapColor(intensity);
+                    }
+
+                    return {
+                        fillColor: color,
+                        weight: 0.5,
+                        opacity: 1,
+                        color: '#000',
+                        fillOpacity: 0.7
+                    };
+                },
+                onEachFeature: (feature, layer) => {
+                    const geoCountryName = feature.properties?.ADMIN || feature.properties?.name;
+                    const flightCount = findCountryMatch(geoCountryName, countryMapData);
+
+                    if (flightCount > 0) {
+                        layer.bindPopup(`<strong>${geoCountryName}</strong><br>Vuelos: ${flightCount}`);
+                    }
+                }
+            }).addTo(map);
+
+            isHeatmapMode = true;
+            const btn = document.getElementById('toggle-heatmap');
+            if (btn) btn.classList.add('active');
+
+            if (matchedCountries === 0) {
+                setHeatmapStatus('0 países coloreados', 'error');
+                return;
+            }
+
+            setHeatmapStatus(`${matchedCountries} países coloreados`, 'ok');
+        })
+        .catch(err => {
+            console.error('Error en renderHeatmap:', err);
+            setHeatmapStatus(`Error: ${err.message}`, 'error');
+        });
+}
+
+function removeHeatmap() {
+    if (heatmapLayer && map) {
+        map.removeLayer(heatmapLayer);
+        heatmapLayer = null;
+    }
+    
+    isHeatmapMode = false;
+    const btn = document.getElementById('toggle-heatmap');
+    if (btn) btn.classList.remove('active');
+    setHeatmapStatus('Heatmap apagado', 'idle');
+    
+    // Re-renderizar el mapa normal
+    if (lastFilteredFlights.length) {
+        renderMap(lastFilteredFlights);
+    }
+}
+
+function getHeatmapColor(intensity) {
+    // Gradiente de color basado en intensidad (pastel a vibrante)
+    if (intensity < 0.2) return '#e8f4f8';      // Azul muy claro
+    if (intensity < 0.4) return '#b3dfe8';      // Azul claro
+    if (intensity < 0.6) return '#7ec8d9';      // Azul medio
+    if (intensity < 0.8) return '#4a9fb5';      // Azul más oscuro
+    return '#1a5f7a';                           // Azul oscuro
+}
+
+// Función auxiliar para hacer matching flexible de nombres de países
+function findCountryMatch(geoCountryName, countryCountsEnglish) {
+    if (!geoCountryName || typeof geoCountryName !== 'string') {
+        return 0;
+    }
+
+    if (!countryCountsEnglish || typeof countryCountsEnglish !== 'object') {
+        return 0;
+    }
+
+    const normalize = (value) => String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\./g, '')
+        .trim()
+        .toLowerCase();
+
+    const normalizedGeo = normalize(geoCountryName);
+
+    // 1. Búsqueda exacta
+    if (countryCountsEnglish[geoCountryName]) {
+        return countryCountsEnglish[geoCountryName];
+    }
+
+    // 1.1 Búsqueda exacta normalizada
+    for (const [countryName, count] of Object.entries(countryCountsEnglish)) {
+        if (normalize(countryName) === normalizedGeo) {
+            return count;
+        }
+    }
+
+    // 2. Búsqueda con variantes (USA vs United States)
+    const variants = {
+        'United States of America': ['United States', 'USA', 'US'],
+        'United States': ['United States of America', 'USA', 'US'],
+        'United Kingdom': ['UK', 'Britain', 'Great Britain'],
+        'Netherlands': ['Holland'],
+        'Czechia': ['Czech Republic'],
+        'Bosnia and Herzegovina': ['Bosnia'],
+        'Republic of Serbia': ['Serbia'],
+        'Republic of Moldova': ['Moldova']
+    };
+
+    try {
+        if (variants[geoCountryName]) {
+            for (let variant of variants[geoCountryName]) {
+                if (countryCountsEnglish[variant]) {
+                    return countryCountsEnglish[variant];
+                }
+            }
+        }
+
+        // 3. Búsqueda parcial (si contiene la mayoría de letras)
+        for (let [countryName, count] of Object.entries(countryCountsEnglish)) {
+            if (!countryName || typeof countryName !== 'string' || !count) continue;
+            
+            try {
+                const geoLower = normalizedGeo;
+                const countryLower = normalize(countryName);
+                const geoFirstWord = geoLower.split(' ')[0];
+                const countryFirstWord = countryLower.split(' ')[0];
+                
+                if ((geoFirstWord && countryLower.includes(geoFirstWord)) ||
+                    (countryFirstWord && geoLower.includes(countryFirstWord))) {
+                    return count;
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+    } catch (e) {
+        return 0;
+    }
+
+    return 0;
+}
+
+function startAnimationMode() {
+    if (!lastFilteredFlights.length) {
+        alert('No hay vuelos para reproducir con los filtros actuales.');
+        return;
+    }
+
+    const toggleBtn = document.getElementById('toggle-animated-mode');
+    const status = document.getElementById('timeline-status');
+
+    const timelineFlights = [...lastFilteredFlights].sort((a, b) => {
+        const dateCompare = new Date(a.date) - new Date(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return (a.flightNumber || '').localeCompare(b.flightNumber || '');
+    });
+
+    isAnimationMode = true;
+    toggleBtn?.classList.add('active');
+    if (toggleBtn) toggleBtn.textContent = 'Detener';
+    if (status) status.textContent = `Timeline 1/${timelineFlights.length}`;
+
+    let index = 0;
+    const processNextFlight = () => {
+        if (!isAnimationMode) return;
+
+        if (index >= timelineFlights.length) {
+            stopAnimationMode(true);
+            return;
+        }
+
+        const currentFlight = timelineFlights[index];
+        const partialFlights = timelineFlights.slice(0, index + 1);
+
+        if (status) {
+            status.textContent = `Timeline ${index + 1}/${timelineFlights.length} • ${currentFlight.date} • ${currentFlight.flightNumber}`;
+        }
+
+        index += 1;
+
+        // Animar el vuelo actual y luego pasar al siguiente
+        animateFlight(currentFlight, partialFlights, () => {
+            if (isAnimationMode) {
+                animationTimerId = setTimeout(processNextFlight, 500);
+            }
+        });
+    };
+
+    processNextFlight();
+}
+
+function stopAnimationMode(completed) {
+    if (animationTimerId) {
+        clearInterval(animationTimerId);
+        animationTimerId = null;
+    }
+
+    const toggleBtn = document.getElementById('toggle-animated-mode');
+    const status = document.getElementById('timeline-status');
+
+    isAnimationMode = false;
+    toggleBtn?.classList.remove('active');
+    if (toggleBtn) toggleBtn.textContent = 'Modo Animado';
+    if (status) status.textContent = completed ? 'Timeline finalizado' : 'Modo normal';
+
+    if (lastFilteredFlights.length) {
+        renderMap(lastFilteredFlights);
+    }
+}
+
+function animateFlight(flight, sourceFlights, callback) {
+    if (!map) return callback();
+
+    // Coordenadas de ciudades
+    const cityCoords = {
+        'Nueva York': [40.7128, -74.0060],
+        'Miami': [25.7617, -80.1918],
+        'Chicago': [41.8781, -87.6298],
+        'Los Ángeles': [34.0522, -118.2437],
+        'México': [19.4326, -99.1332],
+        'Londres': [51.5074, -0.1278],
+        'Manchester': [53.4808, -2.2426],
+        'París': [48.8566, 2.3522],
+        'Lyon': [45.7640, 4.8357],
+        'Tokio': [35.6762, 139.6503],
+        'Osaka': [34.6937, 135.5023],
+        'Sídney': [-33.8688, 151.2093],
+        'Melbourne': [-37.8136, 144.9631],
+        'Roma': [41.9028, 12.4964],
+        'Madrid': [40.4168, -3.7038],
+        'Barcelona': [41.3851, 2.1734],
+        'Berlín': [52.5200, 13.4050],
+        'Múnich': [48.1351, 11.5820],
+        'Fráncfort': [50.1109, 8.6821],
+        'Ámsterdam': [52.3676, 4.9041],
+        'Buenos Aires': [-34.6037, -58.3816]
+    };
+
+    const buenosAiresCoords = cityCoords['Buenos Aires'];
+    const destCoords = cityCoords[flight.destination];
+
+    if (!destCoords || !buenosAiresCoords) {
+        renderMap(sourceFlights);
+        callback();
+        return;
+    }
+
+    // Renderizar todos los vuelos excepto el actual (que se va a animar)
+    const previousFlights = sourceFlights.slice(0, -1);
+    renderMap(previousFlights);
+
+    // Obtener la ruta curva
+    const arcCoords = buildArcCoordinates(buenosAiresCoords, destCoords, 1);
+    const airlineCode = (flight.flightNumber || '').substring(0, 2).toUpperCase();
+
+    // Crear marcador de avión como emoji
+    const planeMarker = L.marker(buenosAiresCoords, {
+        icon: L.divIcon({
+            html: '<div style="font-size: 28px; transform: rotate(45deg); filter: drop-shadow(0 0 4px rgba(255,255,255,0.6));">✈️</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+            className: 'animated-plane'
+        })
+    }).addTo(map);
+
+    // Animar el avión a lo largo de la ruta
+    let pathIndex = 0;
+    const animationInterval = setInterval(() => {
+        if (!isAnimationMode) {
+            clearInterval(animationInterval);
+            if (map.hasLayer(planeMarker)) {
+                map.removeLayer(planeMarker);
+            }
+            return;
+        }
+
+        if (pathIndex >= arcCoords.length) {
+            clearInterval(animationInterval);
+            if (map.hasLayer(planeMarker)) {
+                map.removeLayer(planeMarker);
+            }
+
+            // Renderizar el vuelo como completado
+            renderMap(sourceFlights);
+            callback();
+            return;
+        }
+
+        planeMarker.setLatLng(arcCoords[pathIndex]);
+        pathIndex++;
+    }, 25); // 25ms por paso = ~1.2s para 48 puntos
 }
 
 function estimateDurationHours(distanceKm) {
@@ -154,6 +636,11 @@ function estimateDurationHours(distanceKm) {
     const groundOpsHours = 0.75;
     const rawHours = (distanceKm || 0) / avgCruiseSpeedKmh + groundOpsHours;
     return Number(rawHours.toFixed(2));
+}
+
+function getCountryFromCity(destination) {
+    // Función auxiliar para obtener país de una ciudad
+    return cityToCountryMap[destination] || 'Desconocido';
 }
 
 function formatDuration(totalHours) {
@@ -168,8 +655,15 @@ function renderRatingStars(rating) {
     return `${'★'.repeat(safeRating)}${'☆'.repeat(5 - safeRating)}`;
 }
 
+function buildAirlineLogoDataUri(airlineCode) {
+    const bgColor = airlineColors[airlineCode] || '#1f2937';
+    const safeCode = String(airlineCode || 'XX').slice(0, 2).toUpperCase();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${safeCode}"><rect width="64" height="64" rx="32" fill="${bgColor}"/><text x="32" y="40" text-anchor="middle" font-size="22" font-family="Arial, sans-serif" font-weight="700" fill="#ffffff">${safeCode}</text></svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 function getAirlineLogoHTML(airlineCode, airlineName, size = 16) {
-    const logoUrl = airlineBrandAssets[airlineCode]?.logo;
+    const logoUrl = airlineBrandAssets[airlineCode]?.logo || buildAirlineLogoDataUri(airlineCode);
     const safeName = airlineName || airlineCode;
     const fallbackSize = Math.max(9, size - 6);
 
@@ -602,6 +1096,13 @@ async function loadFlights() {
                 await updateDoc(docSnapshot.ref, { rating: 5 });
             }
 
+            // Migra documentos sin país: asignar país basado en la ciudad destino
+            if (!data.country && data.destination) {
+                data.country = cityToCountryMap[data.destination] || 'Desconocido';
+                await updateDoc(docSnapshot.ref, { country: data.country });
+                console.log(`%c🗺️ País asignado a ${data.flightNumber}: ${data.country}`, 'color: #ffc107; font-size: 11px;');
+            }
+
             allFlights.push({ id: docSnapshot.id, ...data });
         }
         console.log(`%c📊 ${allFlights.length} vuelos cargados`, 'color: #28a745; font-size: 12px;');
@@ -648,14 +1149,23 @@ function processFlights(flights) {
     // Filtrar vuelos según período seleccionado
     const periodFilteredFlights = getFlightsByPeriod(flights, currentPeriod);
     const filteredFlights = getFlightsByTripType(periodFilteredFlights, currentTripType);
+    lastFilteredFlights = filteredFlights;
     
     // Calcular kilómetros acumulados
     const totalKm = filteredFlights.reduce((sum, flight) => sum + (flight.distance || 0), 0);
     const totalDurationHours = filteredFlights.reduce((sum, flight) => {
         return sum + (flight.durationHours || estimateDurationHours(flight.distance));
     }, 0);
+    
+    // Calcular equivalentes de distancia
+    const worldTours = (totalKm / EARTH_CIRCUMFERENCE_KM).toFixed(2);
+    const moonDistances = (totalKm / MOON_DISTANCE_KM).toFixed(2);
+    
+    // Actualizar DOM
     document.getElementById('total-km').textContent = `${totalKm.toLocaleString()} km`;
     document.getElementById('total-time').textContent = formatDuration(totalDurationHours);
+    document.getElementById('world-tours').textContent = worldTours;
+    document.getElementById('moon-distance').textContent = moonDistances;
 
     // Destinos más frecuentes
     const destinationCount = {};
@@ -733,10 +1243,12 @@ function processFlights(flights) {
     });
 
     // Mapa interactivo
-    renderMap(filteredFlights);
+    if (!isAnimationMode) {
+        renderMap(filteredFlights);
+    }
 }
 
-function renderMap(flights) {
+function renderMap(flights, highlightedFlight = null) {
     if (!map) return;
 
     // Limpiar marcadores y líneas previos
@@ -942,6 +1454,29 @@ function renderMap(flights) {
             markers[destination] = marker;
         }
     });
+
+    if (highlightedFlight?.destination && cityCoords[highlightedFlight.destination] && buenosAiresCoords) {
+        const airlineCode = (highlightedFlight.flightNumber || '').substring(0, 2).toUpperCase();
+        const highlightColor = airlineColors[airlineCode] || '#ffffff';
+        const highlightArc = buildArcCoordinates(buenosAiresCoords, cityCoords[highlightedFlight.destination], 1);
+
+        const highlightLine = L.polyline(highlightArc, {
+            color: '#ffffff',
+            weight: 5,
+            opacity: 0.95,
+            dashArray: '2, 8'
+        }).addTo(map);
+        flightLines.push(highlightLine);
+
+        const pulseMarker = L.circleMarker(cityCoords[highlightedFlight.destination], {
+            radius: 11,
+            color: '#ffffff',
+            weight: 2,
+            fillColor: highlightColor,
+            fillOpacity: 0.95
+        }).addTo(map);
+        flightLines.push(pulseMarker);
+    }
 }
 
 function getCountryFlag(country) {

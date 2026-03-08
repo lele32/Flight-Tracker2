@@ -32,6 +32,10 @@
             <h2>Km Totales</h2>
             <p id="total-km">0 km</p>
             <p id="total-time">0 h 0 min</p>
+            <div id="km-equivalents" style="font-size: 0.85rem; color: #a3a3a3; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                <p style="margin: 4px 0;">🌍 <span id="world-tours">0</span> vueltas al mundo</p>
+                <p style="margin: 4px 0;">🌙 <span id="moon-distance">0</span> distancia a la luna</p>
+            </div>
         </div>
         <div class="stat">
             <h2>Top Destinos</h2>
@@ -48,7 +52,15 @@
     </div>
 
     <div id="map-container">
-        <h2>Live Routes Map</h2>
+        <div id="map-header">
+            <h2>Live Routes Map</h2>
+            <div id="map-actions">
+                <button id="toggle-animated-mode" type="button">Modo Animado</button>
+                <button id="toggle-heatmap" type="button">Heatmap</button>
+                <span id="timeline-status">Modo normal</span>
+                <span id="heatmap-status" class="status-idle">Heatmap apagado</span>
+            </div>
+        </div>
         <div id="map"></div>
     </div>
 
