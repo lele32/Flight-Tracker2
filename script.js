@@ -203,9 +203,9 @@ function initializeMap() {
     }).setView([20, 0], 2.4);
     
     // Estilo oscuro minimalista alineado con la UI
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors © CARTO',
-        maxZoom: 20,
+        maxZoom: 19,
         subdomains: 'abcd',
         noWrap: true
     }).addTo(map);
@@ -601,10 +601,11 @@ function animateFlight(flight, sourceFlights, callback) {
         'Buenos Aires': [-34.6037, -58.3816]
     };
 
-    const buenosAiresCoords = cityCoords['Buenos Aires'];
+    const origin = flight.origin || 'Buenos Aires';
+    const originCoords = cityCoords[origin];
     const destCoords = cityCoords[flight.destination];
 
-    if (!destCoords || !buenosAiresCoords) {
+    if (!destCoords || !originCoords) {
         renderMap(sourceFlights);
         callback();
         return;
@@ -615,11 +616,11 @@ function animateFlight(flight, sourceFlights, callback) {
     renderMap(previousFlights);
 
     // Obtener la ruta curva
-    const arcCoords = buildArcCoordinates(buenosAiresCoords, destCoords, 1);
+    const arcCoords = buildArcCoordinates(originCoords, destCoords, 1);
     const airlineCode = (flight.flightNumber || '').substring(0, 2).toUpperCase();
 
     // Crear marcador de avión como emoji
-    const planeMarker = L.marker(buenosAiresCoords, {
+    const planeMarker = L.marker(originCoords, {
         icon: L.divIcon({
             html: '<div style="font-size: 28px; transform: rotate(45deg); filter: drop-shadow(0 0 4px rgba(255,255,255,0.6));">✈️</div>',
             iconSize: [32, 32],
@@ -745,19 +746,20 @@ function setupDatabaseManager() {
         const flightNumber = document.getElementById('db-flight-number').value.trim().toUpperCase();
         const date = document.getElementById('db-date').value;
         const distance = Number(document.getElementById('db-distance').value);
+        const origin = document.getElementById('db-origin').value.trim();
         const destination = document.getElementById('db-destination').value.trim();
         const country = document.getElementById('db-country').value.trim();
         const category = document.getElementById('db-category').value;
         const rating = Number(document.getElementById('db-rating').value || 5);
 
-        if (!flightNumber || !date || !distance || !destination || !country) {
+        if (!flightNumber || !date || !distance || !origin || !destination || !country) {
             alert('Completa todos los campos para agregar un vuelo manual.');
             return;
         }
 
         try {
             await addDoc(collection(window.db, 'flights'), {
-                origin: 'Buenos Aires',
+                origin,
                 flightNumber,
                 date,
                 distance,
@@ -769,6 +771,7 @@ function setupDatabaseManager() {
             });
 
             addForm.reset();
+            document.getElementById('db-origin').value = 'Buenos Aires';
             document.getElementById('db-category').value = 'Personal';
             document.getElementById('db-rating').value = '5';
             await loadFlights();
@@ -831,15 +834,15 @@ function setupDatabaseManager() {
             const payload = {
                 flightNumber: row.querySelector('[data-field="flightNumber"]').value.trim().toUpperCase(),
                 date: row.querySelector('[data-field="date"]').value,
+                origin: row.querySelector('[data-field="origin"]').value.trim(),
                 destination: row.querySelector('[data-field="destination"]').value.trim(),
                 country: row.querySelector('[data-field="country"]').value.trim(),
                 distance: Number(row.querySelector('[data-field="distance"]').value),
                 category: row.querySelector('[data-field="category"]').value,
-                rating: Number(row.querySelector('[data-field="rating"]').value || 5),
-                origin: 'Buenos Aires'
+                rating: Number(row.querySelector('[data-field="rating"]').value || 5)
             };
 
-            if (!payload.flightNumber || !payload.date || !payload.destination || !payload.country || !payload.distance) {
+            if (!payload.flightNumber || !payload.date || !payload.origin || !payload.destination || !payload.country || !payload.distance) {
                 alert('Completa los campos obligatorios antes de guardar.');
                 return;
             }
@@ -868,6 +871,7 @@ function renderDatabaseTable(flights) {
         const id = flight.id || '';
         const flightNumber = escapeHtml(flight.flightNumber || '');
         const date = escapeHtml(flight.date || '');
+        const origin = escapeHtml(flight.origin || 'Buenos Aires');
         const destination = escapeHtml(flight.destination || '');
         const country = escapeHtml(flight.country || '');
         const distance = Number(flight.distance || 0);
@@ -878,6 +882,7 @@ function renderDatabaseTable(flights) {
             <tr>
                 <td><input class="db-input" data-field="flightNumber" value="${flightNumber}"></td>
                 <td><input class="db-input" data-field="date" type="date" value="${date}"></td>
+                <td><input class="db-input" data-field="origin" value="${origin}"></td>
                 <td><input class="db-input" data-field="destination" value="${destination}"></td>
                 <td><input class="db-input" data-field="country" value="${country}"></td>
                 <td><input class="db-input" data-field="distance" type="number" min="100" step="10" value="${distance}"></td>
@@ -1050,57 +1055,54 @@ async function loadSampleData() {
     }
 
     const sampleFlights = [
-        // American Airlines - Azul (#0073CF)
+        // Vuelos desde Buenos Aires
         { origin: 'Buenos Aires', destination: 'Nueva York', distance: 8500, date: '2025-01-15', country: 'Estados Unidos', flightNumber: 'AA953' },
-        { origin: 'Buenos Aires', destination: 'Nueva York', distance: 8500, date: '2025-02-20', country: 'Estados Unidos', flightNumber: 'AA100' },
-        { origin: 'Buenos Aires', destination: 'Miami', distance: 4500, date: '2025-03-10', country: 'Estados Unidos', flightNumber: 'AA951' },
-        { origin: 'Buenos Aires', destination: 'Chicago', distance: 7500, date: '2025-04-05', country: 'Estados Unidos', flightNumber: 'AA952' },
-        { origin: 'Buenos Aires', destination: 'Los Ángeles', distance: 9000, date: '2025-05-12', country: 'Estados Unidos', flightNumber: 'AA950' },
-
-        // British Airways - Azul oscuro (#2E5C99)
-        { origin: 'Buenos Aires', destination: 'Londres', distance: 11000, date: '2025-01-25', country: 'Reino Unido', flightNumber: 'BA200' },
-        { origin: 'Buenos Aires', destination: 'Londres', distance: 11000, date: '2025-02-15', country: 'Reino Unido', flightNumber: 'BA200' },
-        { origin: 'Buenos Aires', destination: 'Manchester', distance: 11200, date: '2025-03-20', country: 'Reino Unido', flightNumber: 'BA201' },
-
-        // Air France - Azul marino (#002157)
-        { origin: 'Buenos Aires', destination: 'París', distance: 10500, date: '2025-02-01', country: 'Francia', flightNumber: 'AF300' },
-        { origin: 'Buenos Aires', destination: 'París', distance: 10500, date: '2025-03-15', country: 'Francia', flightNumber: 'AF300' },
-        { origin: 'Buenos Aires', destination: 'Lyon', distance: 10700, date: '2025-04-10', country: 'Francia', flightNumber: 'AF301' },
-
-        // Lufthansa - Rojo (#E31937)
-        { origin: 'Buenos Aires', destination: 'Berlín', distance: 12000, date: '2025-01-30', country: 'Alemania', flightNumber: 'LH400' },
-        { origin: 'Buenos Aires', destination: 'Berlín', distance: 12000, date: '2025-03-05', country: 'Alemania', flightNumber: 'LH400' },
-        { origin: 'Buenos Aires', destination: 'Múnich', distance: 12200, date: '2025-04-20', country: 'Alemania', flightNumber: 'LH401' },
-        { origin: 'Buenos Aires', destination: 'Fráncfort', distance: 11800, date: '2025-05-15', country: 'Alemania', flightNumber: 'LH402' },
-
-        // Alitalia - Azul claro (#0066CC)
-        { origin: 'Buenos Aires', destination: 'Roma', distance: 11500, date: '2025-02-10', country: 'Italia', flightNumber: 'AZ500' },
-        { origin: 'Buenos Aires', destination: 'Roma', distance: 11500, date: '2025-04-01', country: 'Italia', flightNumber: 'AZ500' },
-        { origin: 'Buenos Aires', destination: 'Milán', distance: 11700, date: '2025-05-05', country: 'Italia', flightNumber: 'AZ501' },
-
-        // Iberia - Rojo (#D71920)
         { origin: 'Buenos Aires', destination: 'Madrid', distance: 10000, date: '2025-01-20', country: 'España', flightNumber: 'IB600' },
-        { origin: 'Buenos Aires', destination: 'Madrid', distance: 10000, date: '2025-03-25', country: 'España', flightNumber: 'IB600' },
-        { origin: 'Buenos Aires', destination: 'Barcelona', distance: 10100, date: '2025-04-30', country: 'España', flightNumber: 'IB601' },
-
-        // KLM - Azul cielo (#00A1E4)
-        { origin: 'Buenos Aires', destination: 'Ámsterdam', distance: 11000, date: '2025-02-05', country: 'Países Bajos', flightNumber: 'KL700' },
-        { origin: 'Buenos Aires', destination: 'Ámsterdam', distance: 11000, date: '2025-04-15', country: 'Países Bajos', flightNumber: 'KL700' },
-
-        // Japan Airlines - Rojo (#ED1A3A)
-        { origin: 'Buenos Aires', destination: 'Tokio', distance: 18000, date: '2025-01-10', country: 'Japón', flightNumber: 'JL800' },
-        { origin: 'Buenos Aires', destination: 'Tokio', distance: 18000, date: '2025-03-30', country: 'Japón', flightNumber: 'JL800' },
-        { origin: 'Buenos Aires', destination: 'Osaka', distance: 18200, date: '2025-05-20', country: 'Japón', flightNumber: 'JL801' },
-
-        // Qantas - Rojo (#E31837)
+        { origin: 'Buenos Aires', destination: 'París', distance: 10500, date: '2025-02-01', country: 'Francia', flightNumber: 'AF300' },
+        { origin: 'Buenos Aires', destination: 'Roma', distance: 11500, date: '2025-02-10', country: 'Italia', flightNumber: 'AZ500' },
         { origin: 'Buenos Aires', destination: 'Sídney', distance: 12000, date: '2025-02-25', country: 'Australia', flightNumber: 'QF900' },
-        { origin: 'Buenos Aires', destination: 'Sídney', distance: 12000, date: '2025-04-25', country: 'Australia', flightNumber: 'QF900' },
-        { origin: 'Buenos Aires', destination: 'Melbourne', distance: 11800, date: '2025-05-25', country: 'Australia', flightNumber: 'QF901' },
 
-        // Aeromexico - Naranja rojizo (#FF6B35)
-        { origin: 'Buenos Aires', destination: 'Nueva York', distance: 8500, date: '2025-01-05', country: 'Estados Unidos', flightNumber: 'AM190' },
-        { origin: 'Buenos Aires', destination: 'México', distance: 2500, date: '2025-02-28', country: 'México', flightNumber: 'AM191' },
-        { origin: 'Buenos Aires', destination: 'Los Ángeles', distance: 9000, date: '2025-03-12', country: 'Estados Unidos', flightNumber: 'AM192' }
+        // Vuelos desde Nueva York
+        { origin: 'Nueva York', destination: 'Londres', distance: 5570, date: '2025-02-20', country: 'Reino Unido', flightNumber: 'BA200' },
+        { origin: 'Nueva York', destination: 'París', distance: 5840, date: '2025-03-15', country: 'Francia', flightNumber: 'AF300' },
+        { origin: 'Nueva York', destination: 'Miami', distance: 1760, date: '2025-03-10', country: 'Estados Unidos', flightNumber: 'AA951' },
+        { origin: 'Nueva York', destination: 'Los Ángeles', distance: 3950, date: '2025-05-12', country: 'Estados Unidos', flightNumber: 'AA950' },
+        { origin: 'Nueva York', destination: 'Tokio', distance: 10850, date: '2025-01-10', country: 'Japón', flightNumber: 'JL800' },
+
+        // Vuelos desde Londres
+        { origin: 'Londres', destination: 'Manchester', distance: 260, date: '2025-03-20', country: 'Reino Unido', flightNumber: 'BA201' },
+        { origin: 'Londres', destination: 'Berlín', distance: 930, date: '2025-01-30', country: 'Alemania', flightNumber: 'LH400' },
+        { origin: 'Londres', destination: 'Madrid', distance: 1260, date: '2025-03-25', country: 'España', flightNumber: 'IB600' },
+        { origin: 'Londres', destination: 'Roma', distance: 1430, date: '2025-04-01', country: 'Italia', flightNumber: 'AZ500' },
+        { origin: 'Londres', destination: 'Ámsterdam', distance: 360, date: '2025-02-05', country: 'Países Bajos', flightNumber: 'KL700' },
+
+        // Vuelos desde París
+        { origin: 'París', destination: 'Lyon', distance: 390, date: '2025-04-10', country: 'Francia', flightNumber: 'AF301' },
+        { origin: 'París', destination: 'Barcelona', distance: 830, date: '2025-04-30', country: 'España', flightNumber: 'IB601' },
+        { origin: 'París', destination: 'Múnich', distance: 690, date: '2025-04-20', country: 'Alemania', flightNumber: 'LH401' },
+        { origin: 'París', destination: 'Milán', distance: 640, date: '2025-05-05', country: 'Italia', flightNumber: 'AZ501' },
+
+        // Vuelos desde Madrid
+        { origin: 'Madrid', destination: 'Barcelona', distance: 500, date: '2025-02-15', country: 'España', flightNumber: 'IB600' },
+        { origin: 'Madrid', destination: 'Roma', distance: 1360, date: '2025-03-05', country: 'Italia', flightNumber: 'AZ500' },
+        { origin: 'Madrid', destination: 'París', distance: 1050, date: '2025-02-01', country: 'Francia', flightNumber: 'AF300' },
+
+        // Vuelos desde Tokio
+        { origin: 'Tokio', destination: 'Osaka', distance: 400, date: '2025-05-20', country: 'Japón', flightNumber: 'JL801' },
+        { origin: 'Tokio', destination: 'Sídney', distance: 7820, date: '2025-03-30', country: 'Australia', flightNumber: 'QF900' },
+        { origin: 'Tokio', destination: 'Los Ángeles', distance: 8800, date: '2025-03-12', country: 'Estados Unidos', flightNumber: 'AM192' },
+
+        // Vuelos desde Miami
+        { origin: 'Miami', destination: 'México', distance: 1300, date: '2025-02-28', country: 'México', flightNumber: 'AM191' },
+        { origin: 'Miami', destination: 'Buenos Aires', distance: 6900, date: '2025-01-05', country: 'Argentina', flightNumber: 'AM190' },
+
+        // Vuelos desde Berlín
+        { origin: 'Berlín', destination: 'Fráncfort', distance: 430, date: '2025-05-15', country: 'Alemania', flightNumber: 'LH402' },
+        { origin: 'Berlín', destination: 'Ámsterdam', distance: 580, date: '2025-04-15', country: 'Países Bajos', flightNumber: 'KL700' },
+
+        // Vuelos desde Sídney
+        { origin: 'Sídney', destination: 'Melbourne', distance: 710, date: '2025-05-25', country: 'Australia', flightNumber: 'QF901' },
+        { origin: 'Sídney', destination: 'Tokio', distance: 7820, date: '2025-04-25', country: 'Japón', flightNumber: 'JL800' }
     ].map((flight, index) => ({
         ...flight,
         category: index % 2 === 0 ? 'Trabajo' : 'Personal',
@@ -1121,7 +1123,7 @@ async function loadSampleData() {
         }
     }
     console.log(`%c✅ Datos cargados: ${successCount} vuelos agregados, ${errorCount} errores`, 'color: #28a745; font-size: 12px;');
-    alert(`✈️ Se cargaron ${successCount} vuelos de ejemplo exitosamente!\n\nAhora puedes ver:\n• Marcadores de origen por aerolínea en Buenos Aires\n• Marcadores de destino con colores únicos\n• Líneas punteadas conectando cada ruta\n• Popups detallados con información por aerolínea`);
+    alert(`✈️ Se cargaron ${successCount} vuelos de ejemplo exitosamente!\n\nAhora puedes ver:\n• Marcadores de origen por aerolínea desde diferentes ciudades\n• Marcadores de destino con colores únicos\n• Líneas punteadas conectando cada ruta\n• Popups detallados con información por aerolínea y origen`);
 }
 
 async function loadFlights() {
@@ -1152,6 +1154,13 @@ async function loadFlights() {
                 data.country = cityToCountryMap[data.destination] || 'Desconocido';
                 await updateDoc(docSnapshot.ref, { country: data.country });
                 console.log(`%c🗺️ País asignado a ${data.flightNumber}: ${data.country}`, 'color: #ffc107; font-size: 11px;');
+            }
+
+            // Migra documentos sin origen: asignar Buenos Aires como origen por defecto
+            if (!data.origin) {
+                data.origin = 'Buenos Aires';
+                await updateDoc(docSnapshot.ref, { origin: 'Buenos Aires' });
+                console.log(`%c🛫 Origen asignado a ${data.flightNumber}: Buenos Aires`, 'color: #ffc107; font-size: 11px;');
             }
 
             allFlights.push({ id: docSnapshot.id, ...data });
@@ -1395,24 +1404,30 @@ function renderMap(flights, highlightedFlight = null) {
         'Buenos Aires': [-34.6037, -58.3816]
     };
 
-    // Coordenadas de Buenos Aires (origen)
-    const buenosAiresCoords = cityCoords['Buenos Aires'];
-
     // Filtrar vuelos que tengan flightNumber
     const validFlights = flights.filter(f => f.flightNumber);
 
-    // Agrupar vuelos por aerolínea
-    const flightsByAirline = {};
+    // Agrupar vuelos por origen y aerolínea
+    const flightsByOriginAirline = {};
     validFlights.forEach(flight => {
         const airlineCode = flight.flightNumber.substring(0, 2).toUpperCase();
-        if (!flightsByAirline[airlineCode]) {
-            flightsByAirline[airlineCode] = [];
+        const origin = flight.origin || 'Buenos Aires';
+        const key = `${origin}_${airlineCode}`;
+        if (!flightsByOriginAirline[key]) {
+            flightsByOriginAirline[key] = {
+                origin,
+                airlineCode,
+                flights: []
+            };
         }
-        flightsByAirline[airlineCode].push(flight);
+        flightsByOriginAirline[key].flights.push(flight);
     });
 
-    // Crear marcadores para cada aerolínea en Buenos Aires (origen)
-    Object.entries(flightsByAirline).forEach(([airlineCode, airlineFlights]) => {
+    // Crear marcadores para cada combinación origen-aerolínea
+    Object.values(flightsByOriginAirline).forEach(({ origin, airlineCode, flights: airlineFlights }) => {
+        const originCoords = cityCoords[origin];
+        if (!originCoords) return;
+
         const airlineColor = airlineColors[airlineCode] || '#0A84FF';
         const airlineName = flightDatabase[airlineCode]?.airline || airlineCode;
         const totalFlights = airlineFlights.length;
@@ -1424,7 +1439,7 @@ function renderMap(flights, highlightedFlight = null) {
         // Crear popup para el marcador de origen
         const originPopupContent = `
             <div style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; min-width: 250px;">
-                <h3 style="margin: 0 0 10px 0; color: ${airlineColor}; display:flex; align-items:center; gap:8px;">${getAirlineLogoHTML(airlineCode, airlineName, 18)} <span>🏠 ${airlineName} - Buenos Aires</span></h3>
+                <h3 style="margin: 0 0 10px 0; color: ${airlineColor}; display:flex; align-items:center; gap:8px;">${getAirlineLogoHTML(airlineCode, airlineName, 18)} <span>🏠 ${airlineName} - ${origin}</span></h3>
                 <p style="margin: 5px 0; color: #d1d5db;"><strong>Vuelos Salientes:</strong> ${totalFlights}</p>
                 <p style="margin: 5px 0; color: #d1d5db;"><strong>Distancia Total:</strong> ${totalDistance.toLocaleString()} km</p>
                 <p style="margin: 5px 0; color: #d1d5db;"><strong>Ruta destacada:</strong> ${getCountryFlag(topCountry)} ${topDestination || 'N/A'}</p>
@@ -1432,7 +1447,7 @@ function renderMap(flights, highlightedFlight = null) {
                 <hr style="border: none; border-top: 1px solid #343434; margin: 10px 0;">
                 <div style="max-height: 200px; overflow-y: auto; font-size: 12px;">
                     ${airlineFlights.map(f => `<div style="padding: 5px 0; border-bottom: 1px solid #2a2a2a; color: #ebebeb;">
-                        <strong>${f.flightNumber}</strong> → ${getCountryFlag(f.country)} ${f.destination}<br>
+                        <strong>${f.flightNumber}</strong> ${f.origin || 'Buenos Aires'} → ${getCountryFlag(f.country)} ${f.destination}<br>
                         <small style="color: #a3a3a3;">${f.date} - ${f.distance} km - ${formatDuration(f.durationHours)} - ${getCategoryBadge(f.category)} - ${renderRatingStars(f.rating)}</small>
                     </div>`).join('')}
                 </div>
@@ -1448,22 +1463,24 @@ function renderMap(flights, highlightedFlight = null) {
             popupAnchor: [0, -10]
         });
 
-        const originMarker = L.marker(buenosAiresCoords, {icon: originMarkerIcon})
+        const originMarker = L.marker(originCoords, {icon: originMarkerIcon})
             .bindPopup(originPopupContent)
             .addTo(map);
 
-        markers[`origin_${airlineCode}`] = originMarker;
+        markers[`origin_${origin}_${airlineCode}`] = originMarker;
     });
 
-    // Agrupar vuelos por aerolínea y destino para crear líneas por aerolínea
+    // Agrupar vuelos por ruta (origen-destino-aerolínea) para crear líneas
     const flightRoutes = {};
     validFlights.forEach(flight => {
         const airlineCode = flight.flightNumber.substring(0, 2).toUpperCase();
+        const origin = flight.origin || 'Buenos Aires';
         const destination = flight.destination;
-        const key = `${airlineCode}_${destination}`;
+        const key = `${origin}_${destination}_${airlineCode}`;
         if (!flightRoutes[key]) {
             flightRoutes[key] = {
                 airline: airlineCode,
+                origin,
                 destination: destination,
                 flights: []
             };
@@ -1471,15 +1488,14 @@ function renderMap(flights, highlightedFlight = null) {
         flightRoutes[key].flights.push(flight);
     });
 
-    // Crear líneas punteadas y marcadores de destino por aerolínea
-    const destMarkers = {}; // Para evitar duplicar marcadores de destino
-    
-    Object.entries(flightRoutes).forEach(([routeKey, route]) => {
+    // Crear líneas punteadas por ruta
+    Object.values(flightRoutes).forEach((route) => {
+        const originCoords = cityCoords[route.origin];
         const destCoords = cityCoords[route.destination];
-        if (destCoords && buenosAiresCoords) {
+        if (destCoords && originCoords) {
             const airlineColor = airlineColors[route.airline] || '#0A84FF';
             const routeIntensity = route.flights.length;
-            const arcCoords = buildArcCoordinates(buenosAiresCoords, destCoords, routeIntensity);
+            const arcCoords = buildArcCoordinates(originCoords, destCoords, routeIntensity);
             const dynamicWeight = 1.2 + Math.min(6, Math.sqrt(routeIntensity) * 1.35);
 
             // Crear línea curva con grosor dinámico para mostrar frecuencia de la ruta.
@@ -1511,7 +1527,7 @@ function renderMap(flights, highlightedFlight = null) {
     // Crear marcadores de destino
     Object.entries(flightsByDestination).forEach(([destination, airlines]) => {
         const destCoords = cityCoords[destination];
-        if (destCoords && buenosAiresCoords) {
+        if (destCoords) {
             // Obtener el primer airline para el color del marcador
             const airlineCodes = Object.keys(airlines);
             const primaryAirline = airlineCodes[0];
@@ -1545,7 +1561,7 @@ function renderMap(flights, highlightedFlight = null) {
                         <hr style="border: none; border-top: 1px solid #343434; margin: 10px 0;">
                         <div style="font-weight: 600; margin-bottom: 8px; color: #e7e7e7;">Todos los vuelos:</div>
                         ${Object.values(airlines).flat().map(f => `<div style="padding: 5px 0; border-bottom: 1px solid #2a2a2a; color: #d4d4d4;">
-                            <strong style="color: ${airlineColors[f.flightNumber.substring(0, 2).toUpperCase()] || '#0A84FF'};">${f.flightNumber}</strong> - ${f.date} - ${f.distance} km - ${formatDuration(f.durationHours)} - ${getCategoryBadge(f.category)} - ${renderRatingStars(f.rating)}
+                            <strong style="color: ${airlineColors[f.flightNumber.substring(0, 2).toUpperCase()] || '#0A84FF'};">${f.flightNumber}</strong> desde ${f.origin || 'Buenos Aires'} - ${f.date} - ${f.distance} km - ${formatDuration(f.durationHours)} - ${getCategoryBadge(f.category)} - ${renderRatingStars(f.rating)}
                         </div>`).join('')}
                     </div>
                 </div>
@@ -1568,27 +1584,33 @@ function renderMap(flights, highlightedFlight = null) {
         }
     });
 
-    if (highlightedFlight?.destination && cityCoords[highlightedFlight.destination] && buenosAiresCoords) {
-        const airlineCode = (highlightedFlight.flightNumber || '').substring(0, 2).toUpperCase();
-        const highlightColor = airlineColors[airlineCode] || '#ffffff';
-        const highlightArc = buildArcCoordinates(buenosAiresCoords, cityCoords[highlightedFlight.destination], 1);
+    if (highlightedFlight?.destination && highlightedFlight?.origin) {
+        const origin = highlightedFlight.origin || 'Buenos Aires';
+        const originCoords = cityCoords[origin];
+        const destCoords = cityCoords[highlightedFlight.destination];
+        
+        if (destCoords && originCoords) {
+            const airlineCode = (highlightedFlight.flightNumber || '').substring(0, 2).toUpperCase();
+            const highlightColor = airlineColors[airlineCode] || '#ffffff';
+            const highlightArc = buildArcCoordinates(originCoords, destCoords, 1);
 
-        const highlightLine = L.polyline(highlightArc, {
-            color: '#ffffff',
-            weight: 5,
-            opacity: 0.95,
-            dashArray: '2, 8'
-        }).addTo(map);
-        flightLines.push(highlightLine);
+            const highlightLine = L.polyline(highlightArc, {
+                color: '#ffffff',
+                weight: 5,
+                opacity: 0.95,
+                dashArray: '2, 8'
+            }).addTo(map);
+            flightLines.push(highlightLine);
 
-        const pulseMarker = L.circleMarker(cityCoords[highlightedFlight.destination], {
-            radius: 11,
-            color: '#ffffff',
-            weight: 2,
-            fillColor: highlightColor,
-            fillOpacity: 0.95
-        }).addTo(map);
-        flightLines.push(pulseMarker);
+            const pulseMarker = L.circleMarker(destCoords, {
+                radius: 11,
+                color: '#ffffff',
+                weight: 2,
+                fillColor: highlightColor,
+                fillOpacity: 0.95
+            }).addTo(map);
+            flightLines.push(pulseMarker);
+        }
     }
 }
 
