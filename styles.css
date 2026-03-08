@@ -258,7 +258,7 @@ h1 {
     max-width: 1320px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.7rem;
 }
 
@@ -300,7 +300,8 @@ h1 {
 
 #frequent-destinations,
 #visited-countries,
-#top-airlines {
+#top-airlines,
+#coverage-metrics {
     max-height: 7.2em;
     overflow-y: auto;
     padding-right: 0.25rem;
@@ -308,13 +309,15 @@ h1 {
 
 #frequent-destinations::-webkit-scrollbar,
 #visited-countries::-webkit-scrollbar,
-#top-airlines::-webkit-scrollbar {
+#top-airlines::-webkit-scrollbar,
+#coverage-metrics::-webkit-scrollbar {
     width: 6px;
 }
 
 #frequent-destinations::-webkit-scrollbar-thumb,
 #visited-countries::-webkit-scrollbar-thumb,
-#top-airlines::-webkit-scrollbar-thumb {
+#top-airlines::-webkit-scrollbar-thumb,
+#coverage-metrics::-webkit-scrollbar-thumb {
     background: #3a3a3a;
     border-radius: 999px;
 }

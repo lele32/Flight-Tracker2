@@ -150,6 +150,32 @@ const countrySpanishToEnglish = {
     'Desconocido': 'Unknown'
 };
 
+// Mapeo de país a continente para KPI de cobertura.
+const countryToContinentMap = {
+    'argentina': 'América del Sur',
+    'estados unidos': 'América del Norte',
+    'united states of america': 'América del Norte',
+    'mexico': 'América del Norte',
+    'méxico': 'América del Norte',
+    'reino unido': 'Europa',
+    'united kingdom': 'Europa',
+    'francia': 'Europa',
+    'france': 'Europa',
+    'alemania': 'Europa',
+    'germany': 'Europa',
+    'italia': 'Europa',
+    'italy': 'Europa',
+    'españa': 'Europa',
+    'spain': 'Europa',
+    'paises bajos': 'Europa',
+    'países bajos': 'Europa',
+    'netherlands': 'Europa',
+    'japon': 'Asia',
+    'japón': 'Asia',
+    'japan': 'Asia',
+    'australia': 'Oceanía'
+};
+
 // Mensaje de inicio
 console.log('%c✈️ Flight Tracker iniciado', 'color: #667eea; font-size: 16px; font-weight: bold;');
 console.log('%cNota: Los errores de "SES" o "runtime.lastError" son de extensiones del navegador, no de la app', 'color: #FFB800; font-size: 12px;');
@@ -1188,8 +1214,22 @@ function processFlights(flights) {
 
     // Países visitados
     const countries = new Set();
+    const cities = new Set();
+    const continents = new Set();
     filteredFlights.forEach(flight => {
-        if (flight.country) countries.add(flight.country);
+        if (flight.country) {
+            countries.add(flight.country);
+            const continent = getContinentFromCountry(flight.country);
+            if (continent) continents.add(continent);
+        }
+        if (flight.destination) {
+            cities.add(flight.destination);
+            if (!flight.country) {
+                const inferredCountry = cityToCountryMap[flight.destination];
+                const inferredContinent = getContinentFromCountry(inferredCountry);
+                if (inferredContinent) continents.add(inferredContinent);
+            }
+        }
     });
     const countryList = document.getElementById('visited-countries');
     countryList.innerHTML = '';
@@ -1198,6 +1238,14 @@ function processFlights(flights) {
         li.textContent = `${getCountryFlag(country)} ${country}`;
         countryList.appendChild(li);
     });
+
+    // Cobertura global
+    const coverageCountryCount = document.getElementById('coverage-country-count');
+    const coverageCityCount = document.getElementById('coverage-city-count');
+    const coverageContinentCount = document.getElementById('coverage-continent-count');
+    if (coverageCountryCount) coverageCountryCount.textContent = String(countries.size);
+    if (coverageCityCount) coverageCityCount.textContent = String(cities.size);
+    if (coverageContinentCount) coverageContinentCount.textContent = String(continents.size);
 
     // Top aerolineas por rating promedio
     const airlineAgg = {};
@@ -1246,6 +1294,17 @@ function processFlights(flights) {
     if (!isAnimationMode) {
         renderMap(filteredFlights);
     }
+}
+
+function getContinentFromCountry(country) {
+    if (!country) return null;
+    const normalizedCountry = String(country)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    return countryToContinentMap[normalizedCountry] || null;
 }
 
 function renderMap(flights, highlightedFlight = null) {
