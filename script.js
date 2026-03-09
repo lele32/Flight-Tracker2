@@ -10,7 +10,8 @@ import {
     signOut,
     GoogleAuthProvider,
     signInWithPopup,
-    sendPasswordResetEmail
+    sendPasswordResetEmail,
+    reauthenticateWithPopup
 } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js';
 
 // Configuración de Firebase
@@ -56,6 +57,10 @@ let networkMinFrequency = 1;
 let currentUser = null;
 const googleProvider = new GoogleAuthProvider();
 let openAuthModal = () => {};
+const FLIGHT_API_KEY_STORAGE = 'flightTracker_aviationstack_api_key';
+const AVIATIONSTACK_API_KEY_DEFAULT = '737c0c899deb095b6fa805974f9c2b7b';
+const airportCoordsCache = new Map();
+let hasShownLiveLookupHint = false;
 
 function validatePasswordStrength(password) {
     const checks = {
@@ -74,9 +79,161 @@ function validatePasswordStrength(password) {
     };
 }
 
+function getGoogleAuthErrorMessage(error, context = 'login') {
+    const code = error?.code || 'unknown';
+
+    switch (code) {
+        case 'auth/operation-not-allowed':
+            return 'Google Sign-In no esta habilitado en Firebase Authentication > Sign-in method.';
+        case 'auth/unauthorized-domain':
+            return 'Dominio no autorizado. Agrega lele32.github.io en Firebase Authentication > Settings > Authorized domains.';
+        case 'auth/popup-blocked':
+            return 'El navegador bloqueo la ventana de Google. Habilita popups para este sitio e intenta nuevamente.';
+        case 'auth/popup-closed-by-user':
+            return 'cancelled';
+        case 'auth/network-request-failed':
+            return 'Fallo de red durante autenticacion. Revisa tu conexion e intenta nuevamente.';
+        case 'auth/invalid-api-key':
+            return 'La API key de Firebase no es valida para este proyecto.';
+        default:
+            if (context === 'calendar') {
+                return `No se pudo sincronizar con Google Calendar (codigo: ${code}).`;
+            }
+            return `No se pudo iniciar sesion con Google (codigo: ${code}).`;
+    }
+}
+
 function getFlightsCollectionRef() {
     if (!currentUser) return null;
     return collection(window.db, 'users', currentUser.uid, 'flights');
+}
+
+function getStoredFlightApiKey() {
+    try {
+        const stored = (localStorage.getItem(FLIGHT_API_KEY_STORAGE) || '').trim();
+        return stored || AVIATIONSTACK_API_KEY_DEFAULT;
+    } catch {
+        return AVIATIONSTACK_API_KEY_DEFAULT;
+    }
+}
+
+function maybeAskForFlightApiKey() {
+    const existing = getStoredFlightApiKey();
+    if (existing) return existing;
+
+    const typed = prompt('Para obtener rutas reales de cualquier aerolinea, pega tu API key de Aviationstack (opcional):') || '';
+    const value = typed.trim();
+    if (!value) return '';
+
+    try {
+        localStorage.setItem(FLIGHT_API_KEY_STORAGE, value);
+    } catch {
+        // Ignorar errores de almacenamiento y usar key en memoria de la llamada actual.
+    }
+    return value;
+}
+
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+}
+
+async function getAirportCoordsByIata(iataCode, apiKey) {
+    if (!iataCode || !apiKey) return null;
+    const iata = String(iataCode).toUpperCase().trim();
+    if (!iata) return null;
+
+    if (airportCoordsCache.has(iata)) {
+        return airportCoordsCache.get(iata);
+    }
+
+    try {
+        const url = `https://api.aviationstack.com/v1/airports?access_key=${encodeURIComponent(apiKey)}&iata_code=${encodeURIComponent(iata)}&limit=1`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const payload = await response.json();
+        const airport = payload?.data?.[0];
+        const lat = Number(airport?.latitude);
+        const lon = Number(airport?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+        const coords = { lat, lon };
+        airportCoordsCache.set(iata, coords);
+        return coords;
+    } catch {
+        return null;
+    }
+}
+
+async function lookupFlightLive(flightNumber, apiKey) {
+    if (!apiKey) return null;
+    const value = String(flightNumber || '').trim().toUpperCase();
+    if (!value) return null;
+
+    try {
+        const url = `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(apiKey)}&flight_iata=${encodeURIComponent(value)}&limit=10`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+
+        const payload = await response.json();
+        if (payload?.error) return null;
+
+        const item = (payload?.data || []).find((flight) => {
+            const dep = flight?.departure;
+            const arr = flight?.arrival;
+            return dep?.airport && arr?.airport;
+        });
+
+        if (!item) return null;
+
+        const departure = item.departure || {};
+        const arrival = item.arrival || {};
+        const origin = departure.airport || departure.iata || 'Desconocido';
+        const destination = arrival.airport || arrival.iata || 'Desconocido';
+
+        let distance = 1000;
+        const depCoords = await getAirportCoordsByIata(departure.iata, apiKey);
+        const arrCoords = await getAirportCoordsByIata(arrival.iata, apiKey);
+        if (depCoords && arrCoords) {
+            distance = haversineDistanceKm(depCoords.lat, depCoords.lon, arrCoords.lat, arrCoords.lon);
+        }
+
+        return {
+            origin,
+            destination,
+            distance: Math.max(100, distance),
+            country: arrival.country || cityToCountryMap[destination] || 'Desconocido'
+        };
+    } catch {
+        return null;
+    }
+}
+
+async function lookupFlightWithFallback(flightNumber) {
+    const value = String(flightNumber || '').trim().toUpperCase();
+    if (!value) return null;
+
+    // 1) lookup local rapido
+    const localResult = lookupFlight(value);
+    if (localResult) return localResult;
+
+    // 2) lookup live con API opcional
+    let apiKey = getStoredFlightApiKey();
+    if (!apiKey && !hasShownLiveLookupHint) {
+        hasShownLiveLookupHint = true;
+        apiKey = maybeAskForFlightApiKey();
+    }
+
+    const liveResult = await lookupFlightLive(value, apiKey);
+    return liveResult;
 }
 
 function buildFlightSignature(flight) {
@@ -161,6 +318,140 @@ async function migrateLegacyFlightsForCurrentUser() {
     }
 }
 
+function extractFlightNumberFromText(text) {
+    if (!text) return null;
+    const match = String(text).toUpperCase().match(/\b([A-Z]{2})\s?-?(\d{2,4})\b/);
+    if (!match) return null;
+    return `${match[1]}${match[2]}`;
+}
+
+function isLikelyFlightEvent(event) {
+    const haystack = `${event.summary || ''} ${event.description || ''} ${event.location || ''}`.toLowerCase();
+    const keywords = ['flight', 'vuelo', 'boarding', 'aerolinea', 'aerolínea', 'gate', 'pnr', 'itinerary'];
+    const hasKeyword = keywords.some((word) => haystack.includes(word));
+    const hasFlightPattern = Boolean(extractFlightNumberFromText(haystack));
+    return hasKeyword || hasFlightPattern;
+}
+
+function inferDestinationFromEvent(event, fallbackDestination = 'Desconocido') {
+    const summary = String(event.summary || '');
+    const location = String(event.location || '');
+    const routeMatch = summary.match(/(?:to|a)\s+([A-Za-zÀ-ÿ\s]+)/i);
+    if (routeMatch?.[1]) return routeMatch[1].trim();
+    if (location) return location.split(',')[0].trim();
+    return fallbackDestination;
+}
+
+async function syncFlightsFromGoogleCalendar() {
+    const flightsRef = getFlightsCollectionRef();
+    if (!flightsRef || !currentUser) {
+        alert('Debes iniciar sesión para sincronizar.');
+        return;
+    }
+
+    const usesGoogleProvider = currentUser.providerData.some((provider) => provider.providerId === 'google.com');
+    if (!usesGoogleProvider) {
+        alert('La sincronización de Calendar requiere sesión iniciada con Google.');
+        return;
+    }
+
+    try {
+        const provider = new GoogleAuthProvider();
+        provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+        provider.setCustomParameters({ prompt: 'consent' });
+
+        const authResult = await reauthenticateWithPopup(currentUser, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(authResult);
+        const accessToken = credential?.accessToken;
+
+        if (!accessToken) {
+            alert('No se pudo obtener token de Calendar.');
+            return;
+        }
+
+        const now = new Date();
+        const timeMin = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString();
+        const timeMax = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()).toISOString();
+        const calendarUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
+
+        const response = await fetch(calendarUrl, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Calendar API ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const events = Array.isArray(payload.items) ? payload.items : [];
+        const candidateEvents = events.filter(isLikelyFlightEvent);
+
+        if (candidateEvents.length === 0) {
+            alert('No se encontraron eventos de vuelos en Calendar.');
+            return;
+        }
+
+        const currentSnapshot = await getDocs(flightsRef);
+        const existingSignatures = new Set(
+            currentSnapshot.docs.map((docSnapshot) => buildFlightSignature(docSnapshot.data()))
+        );
+
+        let imported = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        for (const event of candidateEvents) {
+            const flightNumber = extractFlightNumberFromText(`${event.summary || ''} ${event.description || ''}`) || 'GCAL000';
+            const code = flightNumber.slice(0, 2).toUpperCase();
+            const number = flightNumber.slice(2);
+            const knownRoute = flightDatabase[code]?.routes?.[number];
+            const destination = knownRoute?.destination || inferDestinationFromEvent(event);
+            const distance = knownRoute?.distance || 1000;
+            const country = knownRoute?.country || cityToCountryMap[destination] || 'Desconocido';
+            const date = String(event.start?.dateTime || event.start?.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+
+            const flightPayload = normalizeFlightPayload({
+                origin: 'Buenos Aires',
+                destination,
+                distance,
+                date,
+                country,
+                flightNumber,
+                category: 'Personal',
+                rating: 5
+            });
+
+            const signature = buildFlightSignature(flightPayload);
+            if (existingSignatures.has(signature)) {
+                skipped++;
+                continue;
+            }
+
+            try {
+                await addDoc(flightsRef, flightPayload);
+                existingSignatures.add(signature);
+                imported++;
+            } catch (error) {
+                console.error('Error importando evento de Calendar:', error);
+                failed++;
+            }
+        }
+
+        await loadFlights();
+        alert(`Sincronización Calendar finalizada.\n\nImportados: ${imported}\nDuplicados omitidos: ${skipped}\nErrores: ${failed}`);
+    } catch (error) {
+        const message = getGoogleAuthErrorMessage(error, 'calendar');
+        if (message === 'cancelled') {
+            console.info('Sincronización Calendar cancelada por el usuario.');
+            return;
+        }
+        console.error('Error sincronizando con Google Calendar:', error);
+        alert(message);
+    }
+}
+
 function ensureAuthenticated() {
     if (!currentUser) {
         openAuthModal();
@@ -211,6 +502,7 @@ function setupAuthControls() {
     const registerBtn = document.getElementById('auth-register');
     const googleBtn = document.getElementById('auth-google');
     const resetBtn = document.getElementById('auth-reset');
+    const accountSyncCalendarBtn = document.getElementById('account-sync-calendar');
     const accountMigrateBtn = document.getElementById('account-migrate');
     const accountResetBtn = document.getElementById('account-reset');
     const accountLogoutBtn = document.getElementById('account-logout');
@@ -327,18 +619,13 @@ function setupAuthControls() {
             await signInWithPopup(auth, googleProvider);
             hideAuthModal();
         } catch (error) {
-            if (error?.code === 'auth/popup-closed-by-user') {
+            const message = getGoogleAuthErrorMessage(error, 'login');
+            if (message === 'cancelled') {
                 console.info('Login con Google cancelado por el usuario.');
                 return;
             }
-
-            if (error?.code === 'auth/popup-blocked') {
-                alert('El navegador bloqueó la ventana de Google. Habilita popups para este sitio e intenta nuevamente.');
-                return;
-            }
-
             console.error('Error con Google Sign-In:', error);
-            alert('No se pudo iniciar sesión con Google. Verifica que Google esté habilitado en Firebase Authentication.');
+            alert(message);
         }
     });
 
@@ -381,6 +668,11 @@ function setupAuthControls() {
         closeAccountMenu();
     });
 
+    accountSyncCalendarBtn?.addEventListener('click', async () => {
+        await syncFlightsFromGoogleCalendar();
+        closeAccountMenu();
+    });
+
     accountLogoutBtn?.addEventListener('click', async () => {
         try {
             await signOut(auth);
@@ -413,9 +705,9 @@ const continentColors = {
 const flightDatabase = {
     // Aeromexico
     'AM': { airline: 'Aeromexico', routes: {
-        '190': { destination: 'Nueva York', distance: 8500, country: 'Estados Unidos' },
-        '191': { destination: 'México', distance: 2500, country: 'México' },
-        '192': { destination: 'Los Ángeles', distance: 9000, country: 'Estados Unidos' }
+        '190': { origin: 'Ciudad de México', destination: 'Mexicali', distance: 2170, country: 'México' },
+        '191': { origin: 'Ciudad de México', destination: 'Monterrey', distance: 710, country: 'México' },
+        '192': { origin: 'Ciudad de México', destination: 'Cancún', distance: 1290, country: 'México' }
     }},
     // American Airlines
     'AA': { airline: 'American Airlines', routes: {
@@ -499,6 +791,10 @@ const airlineBrandAssets = {
 
 // Mapeo de ciudades a países para búsquedas inversas
 const cityToCountryMap = {
+    'Ciudad de México': 'México',
+    'Mexicali': 'México',
+    'Monterrey': 'México',
+    'Cancún': 'México',
     'Nueva York': 'Estados Unidos',
     'Miami': 'Estados Unidos',
     'Chicago': 'Estados Unidos',
@@ -1745,14 +2041,16 @@ async function setupForm() {
         }
     });
 
-    flightNumberInput.addEventListener('blur', () => {
+    flightNumberInput.addEventListener('blur', async () => {
         const flightNumber = flightNumberInput.value.trim();
         if (flightNumber.length >= 3) {
-            const flightData = lookupFlight(flightNumber);
+            submitBtn.disabled = true;
+            const flightData = await lookupFlightWithFallback(flightNumber);
             if (flightData) {
                 currentFlightData = flightData;
                 const estimatedDuration = estimateDurationHours(flightData.distance);
-                document.getElementById('info-origin').textContent = 'Buenos Aires';
+                const routeOrigin = flightData.origin || 'Buenos Aires';
+                document.getElementById('info-origin').textContent = routeOrigin;
                 document.getElementById('info-destination').textContent = flightData.destination;
                 document.getElementById('info-distance').textContent = flightData.distance + ' km';
                 document.getElementById('info-duration').textContent = formatDuration(estimatedDuration);
@@ -1763,7 +2061,7 @@ async function setupForm() {
             } else {
                 flightInfo.style.display = 'none';
                 flightError.style.display = 'block';
-                flightError.textContent = `❌ Vuelo no encontrado. Ingresa un número válido (ej: AM190, BA200, LH400)`;
+                flightError.textContent = '❌ Vuelo no encontrado. Si quieres cobertura global, configura una API key de Aviationstack cuando se solicite.';
                 submitBtn.disabled = true;
                 currentFlightData = null;
             }
@@ -1782,7 +2080,7 @@ async function setupForm() {
         const date = dateInput.value;
         const category = categoryInput.value;
         const rating = Number(document.querySelector('input[name="rating"]:checked')?.value || 5);
-        const origin = 'Buenos Aires';
+        const origin = currentFlightData.origin || 'Buenos Aires';
         const destination = currentFlightData.destination;
         const distance = currentFlightData.distance;
         const durationHours = estimateDurationHours(distance);

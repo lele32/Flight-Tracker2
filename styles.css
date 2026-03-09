@@ -137,6 +137,7 @@ h1 {
 }
 
 #open-auth-modal,
+#account-sync-calendar,
 #account-migrate,
 #account-reset,
 #account-logout,
@@ -226,6 +227,7 @@ h1 {
 }
 
 #open-auth-modal:hover,
+#account-sync-calendar:hover,
 #account-migrate:hover,
 #account-reset:hover,
 #account-logout:hover,
@@ -1518,6 +1520,7 @@ form button:disabled {
     }
 
     #account-reset,
+    #account-sync-calendar,
     #account-migrate,
     #account-logout,
     #open-auth-modal {
