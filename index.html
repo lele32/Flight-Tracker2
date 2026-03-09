@@ -19,7 +19,6 @@
             </button>
             <div id="account-menu" class="auth-hidden" role="menu">
                 <button id="account-sync-calendar" type="button" role="menuitem">Sincronizar Calendar</button>
-                <button id="account-migrate" type="button" role="menuitem">Importar vuelos legacy</button>
                 <button id="account-reset" type="button" role="menuitem">Recuperar clave</button>
                 <button id="account-logout" type="button" role="menuitem">Salir</button>
             </div>
@@ -58,6 +57,25 @@
                 <button id="auth-register" type="button">Crear cuenta</button>
                 <button id="auth-google" type="button">Continuar con Google</button>
                 <button id="auth-reset" type="button">Olvidé mi contraseña</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="calendar-preview-modal" class="modal-hidden" aria-hidden="true">
+        <div id="calendar-preview-overlay"></div>
+        <div id="calendar-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-preview-title">
+            <button id="close-calendar-preview" type="button" aria-label="Cerrar">x</button>
+            <h2 id="calendar-preview-title">Previsualizacion de vuelos detectados</h2>
+            <p class="auth-subtitle">Selecciona solo los eventos que quieras importar a tu base.</p>
+            <div id="calendar-preview-tools">
+                <button id="calendar-preview-select-all" type="button">Seleccionar todo</button>
+                <button id="calendar-preview-clear-all" type="button">Quitar seleccion</button>
+                <span id="calendar-preview-count">0 seleccionados</span>
+            </div>
+            <div id="calendar-preview-list"></div>
+            <div id="calendar-preview-actions">
+                <button id="calendar-preview-cancel" type="button">Cancelar</button>
+                <button id="calendar-preview-import" type="button">Importar seleccionados</button>
             </div>
         </div>
     </div>
