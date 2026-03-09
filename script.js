@@ -2,6 +2,16 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/fireba
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js';
+import {
+    getAuth,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signOut,
+    GoogleAuthProvider,
+    signInWithPopup,
+    sendPasswordResetEmail
+} from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js';
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -18,6 +28,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 getAnalytics(app);
 const db = getFirestore(app);
+const auth = getAuth(app);
 window.db = db;
 
 // Variable global para almacenar el mapa de Leaflet
@@ -42,6 +53,252 @@ let heatmapLayer = null;
 let isNetworkMode = false;
 let networkGraph = null;
 let networkMinFrequency = 1;
+let currentUser = null;
+const googleProvider = new GoogleAuthProvider();
+let openAuthModal = () => {};
+
+function validatePasswordStrength(password) {
+    const checks = {
+        minLength: password.length >= 8,
+        hasUpper: /[A-Z]/.test(password),
+        hasLower: /[a-z]/.test(password),
+        hasDigit: /\d/.test(password),
+        hasSymbol: /[^A-Za-z0-9]/.test(password)
+    };
+
+    const passed = Object.values(checks).filter(Boolean).length;
+    return {
+        isStrong: passed === 5,
+        score: passed,
+        checks
+    };
+}
+
+function getFlightsCollectionRef() {
+    if (!currentUser) return null;
+    return collection(window.db, 'users', currentUser.uid, 'flights');
+}
+
+function ensureAuthenticated() {
+    if (!currentUser) {
+        openAuthModal();
+        return false;
+    }
+    return true;
+}
+
+function updateAuthUI() {
+    const openAuthBtn = document.getElementById('open-auth-modal');
+    const accountUser = document.getElementById('account-user');
+    const accountMenu = document.getElementById('account-menu');
+    const accountTrigger = document.getElementById('account-trigger');
+    const accountAvatar = document.getElementById('account-avatar');
+    const authStatus = document.getElementById('auth-status');
+    const isLoggedIn = Boolean(currentUser);
+
+    document.body.classList.toggle('auth-locked', !isLoggedIn);
+
+    if (openAuthBtn) openAuthBtn.classList.toggle('auth-hidden', isLoggedIn);
+    if (accountUser) accountUser.classList.toggle('auth-hidden', !isLoggedIn);
+    if (accountMenu && !isLoggedIn) accountMenu.classList.add('auth-hidden');
+    if (accountTrigger && !isLoggedIn) accountTrigger.setAttribute('aria-expanded', 'false');
+
+    if (!authStatus) return;
+    if (isLoggedIn) {
+        authStatus.textContent = currentUser.email || 'Usuario autenticado';
+        authStatus.style.color = '#8df2b3';
+        if (accountAvatar) {
+            const seed = (currentUser.email || 'U').trim().charAt(0).toUpperCase();
+            accountAvatar.textContent = seed || 'U';
+        }
+    } else {
+        authStatus.textContent = 'No autenticado';
+        authStatus.style.color = '#9f9f9f';
+        if (accountAvatar) accountAvatar.textContent = 'U';
+    }
+}
+
+function setupAuthControls() {
+    const authModal = document.getElementById('auth-modal');
+    const authModalOverlay = document.getElementById('auth-modal-overlay');
+    const closeAuthModalBtn = document.getElementById('close-auth-modal');
+    const openAuthBtn = document.getElementById('open-auth-modal');
+    const emailInput = document.getElementById('auth-email');
+    const passwordInput = document.getElementById('auth-password');
+    const loginBtn = document.getElementById('auth-login');
+    const registerBtn = document.getElementById('auth-register');
+    const googleBtn = document.getElementById('auth-google');
+    const resetBtn = document.getElementById('auth-reset');
+    const accountResetBtn = document.getElementById('account-reset');
+    const accountLogoutBtn = document.getElementById('account-logout');
+    const accountTrigger = document.getElementById('account-trigger');
+    const accountMenu = document.getElementById('account-menu');
+    const accountUser = document.getElementById('account-user');
+    let lastFocusedElement = null;
+
+    const closeAccountMenu = () => {
+        accountMenu?.classList.add('auth-hidden');
+        accountTrigger?.setAttribute('aria-expanded', 'false');
+    };
+
+    const toggleAccountMenu = () => {
+        if (!currentUser) return;
+        const isHidden = accountMenu?.classList.contains('auth-hidden');
+        accountMenu?.classList.toggle('auth-hidden', !isHidden);
+        accountTrigger?.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    };
+
+    const showAuthModal = () => {
+        lastFocusedElement = document.activeElement;
+        authModal?.classList.remove('modal-hidden');
+        authModal?.classList.add('modal-visible');
+        authModal?.setAttribute('aria-hidden', 'false');
+        emailInput?.focus();
+    };
+
+    const hideAuthModal = () => {
+        if (authModal?.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
+        authModal?.classList.add('modal-hidden');
+        authModal?.classList.remove('modal-visible');
+        authModal?.setAttribute('aria-hidden', 'true');
+        if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+            lastFocusedElement.focus();
+        }
+    };
+
+    openAuthModal = showAuthModal;
+
+    openAuthBtn?.addEventListener('click', showAuthModal);
+    accountTrigger?.addEventListener('click', toggleAccountMenu);
+    closeAuthModalBtn?.addEventListener('click', hideAuthModal);
+    authModalOverlay?.addEventListener('click', hideAuthModal);
+    document.addEventListener('click', (event) => {
+        if (!accountUser || accountUser.classList.contains('auth-hidden')) return;
+        if (!accountUser.contains(event.target)) {
+            closeAccountMenu();
+        }
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && authModal?.classList.contains('modal-visible')) {
+            hideAuthModal();
+        }
+
+        if (event.key === 'Escape' && accountMenu && !accountMenu.classList.contains('auth-hidden')) {
+            closeAccountMenu();
+        }
+    });
+
+    const readCredentials = (mode = 'login') => {
+        const email = emailInput?.value.trim() || '';
+        const password = passwordInput?.value || '';
+        if (!email) {
+            alert('Ingresa un email válido.');
+            return null;
+        }
+
+        if (mode === 'login' && password.length < 6) {
+            alert('Ingresa tu contraseña (mínimo 6 caracteres).');
+            return null;
+        }
+
+        if (mode === 'register') {
+            const strength = validatePasswordStrength(password);
+            if (!strength.isStrong) {
+                alert('La contraseña debe tener al menos 8 caracteres e incluir mayúscula, minúscula, número y símbolo.');
+                return null;
+            }
+        }
+
+        return { email, password };
+    };
+
+    loginBtn?.addEventListener('click', async () => {
+        const creds = readCredentials('login');
+        if (!creds) return;
+        try {
+            await signInWithEmailAndPassword(auth, creds.email, creds.password);
+            hideAuthModal();
+        } catch (error) {
+            console.error('Error iniciando sesión:', error);
+            alert('No se pudo iniciar sesión. Verifica email y contraseña.');
+        }
+    });
+
+    registerBtn?.addEventListener('click', async () => {
+        const creds = readCredentials('register');
+        if (!creds) return;
+        try {
+            await createUserWithEmailAndPassword(auth, creds.email, creds.password);
+            alert('Cuenta creada correctamente.');
+            hideAuthModal();
+        } catch (error) {
+            console.error('Error creando cuenta:', error);
+            alert('No se pudo crear la cuenta. Revisa si el email ya existe.');
+        }
+    });
+
+    googleBtn?.addEventListener('click', async () => {
+        try {
+            await signInWithPopup(auth, googleProvider);
+            hideAuthModal();
+        } catch (error) {
+            console.error('Error con Google Sign-In:', error);
+            alert('No se pudo iniciar sesión con Google. Verifica que esté habilitado en Firebase Authentication.');
+        }
+    });
+
+    resetBtn?.addEventListener('click', async () => {
+        const email = emailInput?.value.trim() || '';
+        if (!email) {
+            alert('Escribe tu email para enviarte el enlace de recuperación.');
+            return;
+        }
+
+        try {
+            await sendPasswordResetEmail(auth, email);
+            alert('Te enviamos un email para restablecer tu contraseña.');
+        } catch (error) {
+            console.error('Error enviando recovery email:', error);
+            alert('No se pudo enviar el correo de recuperación. Revisa el email ingresado.');
+        }
+    });
+
+    accountResetBtn?.addEventListener('click', async () => {
+        if (!currentUser?.email) {
+            alert('No hay una sesión activa para recuperar contraseña.');
+            return;
+        }
+
+        try {
+            await sendPasswordResetEmail(auth, currentUser.email);
+            alert('Te enviamos un email para restablecer tu contraseña.');
+            closeAccountMenu();
+        } catch (error) {
+            console.error('Error enviando recovery email:', error);
+            alert('No se pudo enviar el correo de recuperación.');
+        }
+    });
+
+    accountLogoutBtn?.addEventListener('click', async () => {
+        try {
+            await signOut(auth);
+            closeAccountMenu();
+        } catch (error) {
+            console.error('Error cerrando sesión:', error);
+            alert('No se pudo cerrar sesión.');
+        }
+    });
+
+    onAuthStateChanged(auth, async (user) => {
+        currentUser = user;
+        updateAuthUI();
+        await loadFlights();
+    });
+
+    updateAuthUI();
+}
 
 const continentColors = {
     'América del Sur': '#06b6d4',
@@ -217,11 +474,11 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('%c📡 Inicializando componentes...', 'color: #667eea; font-size: 12px;');
     initializeMap();
     setupFilters();
+    setupAuthControls();
     setupDatabaseManager();
     setupAnimationControls();
     setupHeatmapControls();
     setupNetworkControls();
-    loadFlights();
     setupForm();
 });
 
@@ -1103,6 +1360,7 @@ function setupDatabaseManager() {
     let lastFocusedElement = null;
 
     const openModal = () => {
+        if (!ensureAuthenticated()) return;
         lastFocusedElement = document.activeElement;
         modal.classList.remove('modal-hidden');
         modal.classList.add('modal-visible');
@@ -1151,8 +1409,14 @@ function setupDatabaseManager() {
             return;
         }
 
+        const flightsRef = getFlightsCollectionRef();
+        if (!flightsRef) {
+            alert('Inicia sesión para guardar vuelos.');
+            return;
+        }
+
         try {
-            await addDoc(collection(window.db, 'flights'), {
+            await addDoc(flightsRef, {
                 origin,
                 flightNumber,
                 date,
@@ -1180,8 +1444,14 @@ function setupDatabaseManager() {
         const shouldReset = confirm('Esto eliminará TODOS los vuelos de la base de datos. ¿Continuar?');
         if (!shouldReset) return;
 
+        const flightsRef = getFlightsCollectionRef();
+        if (!flightsRef) {
+            alert('Inicia sesión para resetear tu base.');
+            return;
+        }
+
         try {
-            const snapshot = await getDocs(collection(window.db, 'flights'));
+            const snapshot = await getDocs(flightsRef);
             if (snapshot.empty) {
                 alert('La base ya está vacía.');
                 return;
@@ -1213,8 +1483,12 @@ function setupDatabaseManager() {
 
         if (action === 'delete') {
             if (!confirm('¿Eliminar este registro?')) return;
+            if (!currentUser) {
+                alert('Inicia sesión para eliminar registros.');
+                return;
+            }
             try {
-                await deleteDoc(doc(window.db, 'flights', flightId));
+                await deleteDoc(doc(window.db, 'users', currentUser.uid, 'flights', flightId));
                 await loadFlights();
                 renderDatabaseTable(allFlights);
             } catch (error) {
@@ -1244,7 +1518,11 @@ function setupDatabaseManager() {
             payload.durationHours = estimateDurationHours(payload.distance);
 
             try {
-                await updateDoc(doc(window.db, 'flights', flightId), payload);
+                if (!currentUser) {
+                    alert('Inicia sesión para actualizar registros.');
+                    return;
+                }
+                await updateDoc(doc(window.db, 'users', currentUser.uid, 'flights', flightId), payload);
                 await loadFlights();
                 renderDatabaseTable(allFlights);
             } catch (error) {
@@ -1337,6 +1615,7 @@ async function setupForm() {
     let lastFocusedElement = null;
 
     const openModal = () => {
+        if (!ensureAuthenticated()) return;
         lastFocusedElement = document.activeElement;
         flightModal.classList.remove('modal-hidden');
         flightModal.classList.add('modal-visible');
@@ -1409,8 +1688,14 @@ async function setupForm() {
         const durationHours = estimateDurationHours(distance);
         const country = currentFlightData.country;
 
+        const flightsRef = getFlightsCollectionRef();
+        if (!flightsRef) {
+            alert('Debes iniciar sesión para registrar vuelos.');
+            return;
+        }
+
         try {
-            await addDoc(collection(window.db, 'flights'), {
+            await addDoc(flightsRef, {
                 origin,
                 destination,
                 distance,
@@ -1439,6 +1724,7 @@ async function setupForm() {
     });
 
     loadSampleBtn.addEventListener('click', async () => {
+        if (!ensureAuthenticated()) return;
         if (confirm('¿Cargar 30 vuelos de ejemplo? Esto puede tomar un momento.')) {
             await loadSampleData();
             loadFlights();
@@ -1447,9 +1733,15 @@ async function setupForm() {
 }
 
 async function loadSampleData() {
+    const flightsRef = getFlightsCollectionRef();
+    if (!flightsRef) {
+        alert('Debes iniciar sesión para cargar datos de ejemplo.');
+        return;
+    }
+
     // Primero, borrar todos los vuelos existentes
     try {
-        const querySnapshot = await getDocs(collection(window.db, 'flights'));
+        const querySnapshot = await getDocs(flightsRef);
         for (const doc of querySnapshot.docs) {
             await deleteDoc(doc.ref);
         }
@@ -1519,7 +1811,7 @@ async function loadSampleData() {
 
     for (const flight of sampleFlights) {
         try {
-            await addDoc(collection(window.db, 'flights'), flight);
+            await addDoc(flightsRef, flight);
             successCount++;
         } catch (error) {
             console.error('Error agregando vuelo de ejemplo:', error);
@@ -1531,8 +1823,16 @@ async function loadSampleData() {
 }
 
 async function loadFlights() {
+    const flightsRef = getFlightsCollectionRef();
+    if (!flightsRef) {
+        allFlights = [];
+        processFlights(allFlights);
+        renderDatabaseTable(allFlights);
+        return;
+    }
+
     try {
-        const querySnapshot = await getDocs(collection(window.db, 'flights'));
+        const querySnapshot = await getDocs(flightsRef);
         allFlights = [];
         for (const docSnapshot of querySnapshot.docs) {
             const data = docSnapshot.data();

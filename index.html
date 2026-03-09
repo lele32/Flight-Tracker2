@@ -8,6 +8,21 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div id="account-panel" aria-live="polite">
+        <button id="open-auth-modal" type="button">Iniciar sesión</button>
+        <div id="account-user" class="auth-hidden">
+            <button id="account-trigger" type="button" aria-expanded="false" aria-controls="account-menu">
+                <span id="account-avatar">U</span>
+                <span id="auth-status">No autenticado</span>
+                <span id="account-chevron">▾</span>
+            </button>
+            <div id="account-menu" class="auth-hidden" role="menu">
+                <button id="account-reset" type="button" role="menuitem">Recuperar clave</button>
+                <button id="account-logout" type="button" role="menuitem">Salir</button>
+            </div>
+        </div>
+    </div>
+
     <h1>Flight Tracker</h1>
     <p id="hero-subtitle">Mapa global en tiempo real con foco en rutas, frecuencia y motivo de viaje.</p>
 
@@ -25,6 +40,23 @@
         </select>
         <button id="open-register-modal" type="button">Registrar Vuelo</button>
         <button id="open-db-manager" type="button">Gestionar Base</button>
+    </div>
+
+    <div id="auth-modal" class="modal-hidden" aria-hidden="true">
+        <div id="auth-modal-overlay"></div>
+        <div id="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <button id="close-auth-modal" type="button" aria-label="Cerrar">x</button>
+            <h2 id="auth-title">Acceso a tu cuenta</h2>
+            <p class="auth-subtitle">Inicia sesión para ver y gestionar solo tus vuelos.</p>
+            <div id="auth-form-controls">
+                <input id="auth-email" type="email" placeholder="email@ejemplo.com" autocomplete="email">
+                <input id="auth-password" type="password" placeholder="Contraseña" autocomplete="current-password">
+                <button id="auth-login" type="button">Ingresar</button>
+                <button id="auth-register" type="button">Crear cuenta</button>
+                <button id="auth-google" type="button">Continuar con Google</button>
+                <button id="auth-reset" type="button">Olvidé mi contraseña</button>
+            </div>
+        </div>
     </div>
 
     <div id="km-totales-card" class="stat stat-km-totales">
