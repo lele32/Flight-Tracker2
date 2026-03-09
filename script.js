@@ -212,12 +212,13 @@ function initializeMap() {
         zoomSnap: 0.1,
         zoomDelta: 0.2,
         maxBounds: [[-85, -180], [85, 180]],
-        maxBoundsViscosity: 1.0
+        maxBoundsViscosity: 1.0,
+        attributionControl: false
     }).setView([20, 0], 2.4);
     
     // Estilo oscuro minimalista alineado con la UI
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors © CARTO',
+        attribution: '',
         maxZoom: 19,
         subdomains: 'abcd',
         noWrap: true
