@@ -2,7 +2,17 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/fireba
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js';
-import { firebaseConfig } from "./firebaseConfig.js";
+
+// Configuración de Firebase
+const firebaseConfig = {
+    apiKey: "AIzaSyC-PDZnq1zfygXmvvCOqo_-HaooN_PUbfQ",
+    authDomain: "flightracker-f5493.firebaseapp.com",
+    projectId: "flightracker-f5493",
+    storageBucket: "flightracker-f5493.firebasestorage.app",
+    messagingSenderId: "712197361322",
+    appId: "1:712197361322:web:7d7cfaa410eca80c5b8ad3",
+    measurementId: "G-QZ5VTMWJCY"
+};
 
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig);
