@@ -79,6 +79,88 @@ function getFlightsCollectionRef() {
     return collection(window.db, 'users', currentUser.uid, 'flights');
 }
 
+function buildFlightSignature(flight) {
+    const origin = String(flight.origin || '').trim().toLowerCase();
+    const destination = String(flight.destination || '').trim().toLowerCase();
+    const date = String(flight.date || '').trim();
+    const flightNumber = String(flight.flightNumber || '').trim().toUpperCase();
+    const distance = Number(flight.distance || 0);
+    return `${flightNumber}|${date}|${origin}|${destination}|${distance}`;
+}
+
+function normalizeFlightPayload(flight) {
+    const distance = Number(flight.distance || 0);
+    const safeDistance = Number.isFinite(distance) && distance > 0 ? distance : 100;
+    return {
+        origin: flight.origin || 'Buenos Aires',
+        destination: flight.destination || 'Desconocido',
+        distance: safeDistance,
+        date: flight.date || new Date().toISOString().slice(0, 10),
+        country: flight.country || cityToCountryMap[flight.destination] || 'Desconocido',
+        flightNumber: (flight.flightNumber || 'LEG000').toUpperCase(),
+        category: flight.category || 'Personal',
+        rating: Number(flight.rating || 5),
+        durationHours: Number(flight.durationHours || estimateDurationHours(safeDistance))
+    };
+}
+
+async function migrateLegacyFlightsForCurrentUser() {
+    const flightsRef = getFlightsCollectionRef();
+    if (!flightsRef) {
+        alert('Debes iniciar sesión para importar vuelos legacy.');
+        return;
+    }
+
+    try {
+        const [legacySnapshot, currentSnapshot] = await Promise.all([
+            getDocs(collection(window.db, 'flights')),
+            getDocs(flightsRef)
+        ]);
+
+        if (legacySnapshot.empty) {
+            alert('No hay vuelos legacy para importar.');
+            return;
+        }
+
+        const existingSignatures = new Set(
+            currentSnapshot.docs.map((docSnapshot) => buildFlightSignature(docSnapshot.data()))
+        );
+
+        let imported = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        for (const legacyDoc of legacySnapshot.docs) {
+            const normalizedFlight = normalizeFlightPayload(legacyDoc.data());
+            const signature = buildFlightSignature(normalizedFlight);
+
+            if (existingSignatures.has(signature)) {
+                skipped++;
+                continue;
+            }
+
+            try {
+                await addDoc(flightsRef, normalizedFlight);
+                existingSignatures.add(signature);
+                imported++;
+            } catch (error) {
+                console.error('Error importando vuelo legacy:', error);
+                failed++;
+            }
+        }
+
+        await loadFlights();
+        alert(`Importación finalizada.\n\nImportados: ${imported}\nDuplicados omitidos: ${skipped}\nErrores: ${failed}`);
+    } catch (error) {
+        console.error('Error leyendo colección legacy /flights:', error);
+        if (error?.code === 'permission-denied') {
+            alert('No hay permisos para leer /flights. Habilita temporalmente lectura de /flights en Firestore Rules para migrar y luego vuelve a cerrar reglas.');
+            return;
+        }
+        alert('No se pudo completar la migración de vuelos legacy.');
+    }
+}
+
 function ensureAuthenticated() {
     if (!currentUser) {
         openAuthModal();
@@ -129,6 +211,7 @@ function setupAuthControls() {
     const registerBtn = document.getElementById('auth-register');
     const googleBtn = document.getElementById('auth-google');
     const resetBtn = document.getElementById('auth-reset');
+    const accountMigrateBtn = document.getElementById('account-migrate');
     const accountResetBtn = document.getElementById('account-reset');
     const accountLogoutBtn = document.getElementById('account-logout');
     const accountTrigger = document.getElementById('account-trigger');
@@ -279,6 +362,13 @@ function setupAuthControls() {
             console.error('Error enviando recovery email:', error);
             alert('No se pudo enviar el correo de recuperación.');
         }
+    });
+
+    accountMigrateBtn?.addEventListener('click', async () => {
+        const shouldMigrate = confirm('Esto importará vuelos antiguos desde /flights hacia tu espacio personal. ¿Continuar?');
+        if (!shouldMigrate) return;
+        await migrateLegacyFlightsForCurrentUser();
+        closeAccountMenu();
     });
 
     accountLogoutBtn?.addEventListener('click', async () => {
@@ -1836,35 +1926,45 @@ async function loadFlights() {
         allFlights = [];
         for (const docSnapshot of querySnapshot.docs) {
             const data = docSnapshot.data();
+            const migrationPayload = {};
 
             // Migra documentos antiguos sin categoria.
             if (!data.category) {
                 data.category = 'Personal';
-                await updateDoc(docSnapshot.ref, { category: 'Personal' });
+                migrationPayload.category = 'Personal';
             }
 
             if (!data.durationHours) {
                 data.durationHours = estimateDurationHours(data.distance);
-                await updateDoc(docSnapshot.ref, { durationHours: data.durationHours });
+                migrationPayload.durationHours = data.durationHours;
             }
 
             if (!data.rating) {
                 data.rating = 5;
-                await updateDoc(docSnapshot.ref, { rating: 5 });
+                migrationPayload.rating = 5;
             }
 
             // Migra documentos sin país: asignar país basado en la ciudad destino
             if (!data.country && data.destination) {
                 data.country = cityToCountryMap[data.destination] || 'Desconocido';
-                await updateDoc(docSnapshot.ref, { country: data.country });
+                migrationPayload.country = data.country;
                 console.log(`%c🗺️ País asignado a ${data.flightNumber}: ${data.country}`, 'color: #ffc107; font-size: 11px;');
             }
 
             // Migra documentos sin origen: asignar Buenos Aires como origen por defecto
             if (!data.origin) {
                 data.origin = 'Buenos Aires';
-                await updateDoc(docSnapshot.ref, { origin: 'Buenos Aires' });
+                migrationPayload.origin = 'Buenos Aires';
                 console.log(`%c🛫 Origen asignado a ${data.flightNumber}: Buenos Aires`, 'color: #ffc107; font-size: 11px;');
+            }
+
+            // Si rules bloquean escritura, no interrumpimos la carga de datos.
+            if (Object.keys(migrationPayload).length > 0) {
+                try {
+                    await updateDoc(docSnapshot.ref, migrationPayload);
+                } catch (migrationError) {
+                    console.warn('No se pudo aplicar migración automática del documento (se continúa):', migrationError?.code || migrationError);
+                }
             }
 
             allFlights.push({ id: docSnapshot.id, ...data });
@@ -1874,7 +1974,11 @@ async function loadFlights() {
         renderDatabaseTable(allFlights);
     } catch (error) {
         console.error('Error loading flights:', error);
-        console.warn('Asegúrate de que Firestore esté configurado correctamente');
+        if (error?.code === 'permission-denied') {
+            console.warn('Firestore denegó permisos. Revisa Authentication y Firestore Rules para users/{uid}/flights.');
+        } else {
+            console.warn('Asegúrate de que Firestore esté configurado correctamente');
+        }
     }
 }
 

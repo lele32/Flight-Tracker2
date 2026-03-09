@@ -137,6 +137,7 @@ h1 {
 }
 
 #open-auth-modal,
+#account-migrate,
 #account-reset,
 #account-logout,
 #auth-login,
@@ -225,6 +226,7 @@ h1 {
 }
 
 #open-auth-modal:hover,
+#account-migrate:hover,
 #account-reset:hover,
 #account-logout:hover,
 #auth-login:hover,
@@ -1516,6 +1518,7 @@ form button:disabled {
     }
 
     #account-reset,
+    #account-migrate,
     #account-logout,
     #open-auth-modal {
         font-size: 0.68rem;
