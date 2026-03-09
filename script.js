@@ -1100,18 +1100,28 @@ function setupDatabaseManager() {
     const addForm = document.getElementById('db-add-form');
     const tableBody = document.getElementById('db-table-body');
     const resetBtn = document.getElementById('db-reset-all');
+    let lastFocusedElement = null;
 
     const openModal = () => {
+        lastFocusedElement = document.activeElement;
         modal.classList.remove('modal-hidden');
         modal.classList.add('modal-visible');
         modal.setAttribute('aria-hidden', 'false');
         renderDatabaseTable(allFlights);
+        closeBtn?.focus();
     };
 
     const closeModal = () => {
+        // Evita ocultar un contenedor que todavía retiene foco interno.
+        if (modal.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
         modal.classList.add('modal-hidden');
         modal.classList.remove('modal-visible');
         modal.setAttribute('aria-hidden', 'true');
+        if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+            lastFocusedElement.focus();
+        }
     };
 
     openBtn?.addEventListener('click', openModal);
@@ -1324,17 +1334,27 @@ async function setupForm() {
     const closeRegisterModalBtn = document.getElementById('close-register-modal');
     const modalOverlay = document.getElementById('modal-overlay');
     const flightModal = document.getElementById('flight-modal');
+    let lastFocusedElement = null;
 
     const openModal = () => {
+        lastFocusedElement = document.activeElement;
         flightModal.classList.remove('modal-hidden');
         flightModal.classList.add('modal-visible');
         flightModal.setAttribute('aria-hidden', 'false');
+        closeRegisterModalBtn?.focus();
     };
 
     const closeModal = () => {
+        // Evita warning de aria-hidden cuando el foco sigue dentro del modal.
+        if (flightModal.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
         flightModal.classList.add('modal-hidden');
         flightModal.classList.remove('modal-visible');
         flightModal.setAttribute('aria-hidden', 'true');
+        if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+            lastFocusedElement.focus();
+        }
     };
 
     openRegisterModalBtn.addEventListener('click', openModal);
