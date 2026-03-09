@@ -10,8 +10,7 @@ import {
     signOut,
     GoogleAuthProvider,
     signInWithPopup,
-    sendPasswordResetEmail,
-    reauthenticateWithPopup
+    sendPasswordResetEmail
 } from 'https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js';
 
 // Configuración de Firebase
@@ -59,8 +58,7 @@ const googleProvider = new GoogleAuthProvider();
 let openAuthModal = () => {};
 const FLIGHT_LOOKUP_PROXY_URL_STORAGE = 'flightTracker_lookup_proxy_url';
 const FLIGHT_LOOKUP_PROXY_URL_DEFAULT = 'https://us-central1-flightracker-f5493.cloudfunctions.net/lookupFlight';
-let calendarPreviewResolver = null;
-let calendarPreviewCandidates = [];
+let isLiveLookupAvailable = true;
 
 function validatePasswordStrength(password) {
     const checks = {
@@ -95,35 +93,7 @@ function getGoogleAuthErrorMessage(error, context = 'login') {
             return 'Fallo de red durante autenticacion. Revisa tu conexion e intenta nuevamente.';
         case 'auth/invalid-api-key':
             return 'La API key de Firebase no es valida para este proyecto.';
-        case 'calendar/api-401':
-            return 'Google Calendar rechazo la sesion (401). Cierra sesion, vuelve a iniciar con Google y reintenta.';
-        case 'calendar/api-403': {
-            const details = String(error?.details || '').toLowerCase();
-            if (details.includes('access_not_configured') || details.includes('not been used') || details.includes('disabled')) {
-                return 'La API de Google Calendar no esta habilitada en Google Cloud para este proyecto.';
-            }
-            if (details.includes('insufficient') || details.includes('scope')) {
-                return 'Faltan permisos de Calendar. Reautoriza la cuenta Google y acepta acceso a Calendar (readonly).';
-            }
-            return 'Google Calendar devolvio 403 (sin permisos). Revisa OAuth consent, test users y habilitacion de Calendar API.';
-        }
-        case 'calendar/api-404':
-            return 'No se encontro el calendario primario de la cuenta.';
-        case 'calendar/api-429':
-            return 'Google Calendar alcanzo limite de solicitudes. Intenta de nuevo en unos minutos.';
-        case 'calendar/api-500':
-        case 'calendar/api-502':
-        case 'calendar/api-503':
-            return 'Google Calendar no esta disponible temporalmente. Intenta nuevamente.';
-        case 'calendar/network-error':
-            return 'No se pudo conectar con Google Calendar. Revisa tu conexion o bloqueadores de red.';
         default:
-            if (context === 'calendar') {
-                if (error?.message && error.message !== String(code)) {
-                    return `No se pudo sincronizar con Google Calendar: ${error.message}`;
-                }
-                return `No se pudo sincronizar con Google Calendar (codigo: ${code}).`;
-            }
             return `No se pudo iniciar sesion con Google (codigo: ${code}).`;
     }
 }
@@ -144,6 +114,7 @@ function getFlightLookupProxyUrl() {
 
 async function lookupFlightLive(flightNumber) {
     if (!currentUser) return null;
+    if (!isLiveLookupAvailable) return null;
     const proxyUrl = getFlightLookupProxyUrl();
     if (!proxyUrl) return null;
 
@@ -160,7 +131,13 @@ async function lookupFlightLive(flightNumber) {
             }
         });
 
-        if (!response.ok) return null;
+        if (!response.ok) {
+            // Evita repetir requests si el endpoint no existe o falla CORS de forma sistemática
+            if (response.status === 404 || response.status === 405) {
+                isLiveLookupAvailable = false;
+            }
+            return null;
+        }
 
         const payload = await response.json();
         if (!payload || payload.found === false) return null;
@@ -172,6 +149,7 @@ async function lookupFlightLive(flightNumber) {
             country: payload.country || cityToCountryMap[payload.destination] || 'Desconocido'
         };
     } catch {
+        isLiveLookupAvailable = false;
         return null;
     }
 }
@@ -212,344 +190,6 @@ function normalizeFlightPayload(flight) {
         rating: Number(flight.rating || 5),
         durationHours: Number(flight.durationHours || estimateDurationHours(safeDistance))
     };
-}
-
-function extractFlightNumberFromText(text) {
-    if (!text) return null;
-    const match = String(text).toUpperCase().match(/\b([A-Z]{2})\s?-?(\d{2,4})\b/);
-    if (!match) return null;
-    return `${match[1]}${match[2]}`;
-}
-
-function normalizeTextToken(value) {
-    return String(value || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim()
-        .toLowerCase();
-}
-
-function cleanRouteToken(value) {
-    return String(value || '')
-        .replace(/\b(aeropuerto|airport|terminal|gate|puerta|vuelo|flight)\b/gi, '')
-        .replace(/[()\[\]]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function isVirtualEvent(event) {
-    const haystack = normalizeTextToken(`${event.summary || ''} ${event.description || ''} ${event.location || ''}`);
-    const virtualKeywords = [
-        'microsoft teams',
-        'teams meeting',
-        'meet.google.com',
-        'google meet',
-        'zoom',
-        'webex',
-        'hangouts'
-    ];
-    return virtualKeywords.some((word) => haystack.includes(word));
-}
-
-function extractRouteFromEvent(event) {
-    const candidates = [event.summary || '', event.location || '', event.description || ''];
-    const patterns = [
-        /([A-Za-zÀ-ÿ\s]{3,})\s*(?:->|→|\-|–|—)\s*([A-Za-zÀ-ÿ\s]{3,})/i,
-        /(?:from|de)\s+([A-Za-zÀ-ÿ\s]{3,})\s+(?:to|a|hasta)\s+([A-Za-zÀ-ÿ\s]{3,})/i,
-        /([A-Z]{3})\s*(?:->|→|\-|–|—)\s*([A-Z]{3})/
-    ];
-
-    for (const text of candidates) {
-        for (const pattern of patterns) {
-            const match = String(text).match(pattern);
-            if (!match) continue;
-
-            const origin = cleanRouteToken(match[1]);
-            const destination = cleanRouteToken(match[2]);
-            if (!origin || !destination) continue;
-            if (normalizeTextToken(origin) === normalizeTextToken(destination)) continue;
-            return { origin, destination };
-        }
-    }
-
-    return null;
-}
-
-function isLikelyFlightEvent(event) {
-    if (isVirtualEvent(event)) return false;
-
-    const haystack = normalizeTextToken(`${event.summary || ''} ${event.description || ''} ${event.location || ''}`);
-    const keywords = ['flight', 'vuelo', 'boarding', 'aerolinea', 'aerolinea', 'airline', 'gate', 'pnr', 'itinerary', 'terminal', 'boarding pass', 'aeropuerto', 'airport'];
-    const hasKeyword = keywords.some((word) => haystack.includes(word));
-    const hasFlightPattern = Boolean(extractFlightNumberFromText(haystack));
-    const route = extractRouteFromEvent(event);
-
-    // Es probablemente un vuelo si tiene número de vuelo, ruta clara, o keywords de aviación
-    return hasFlightPattern || Boolean(route) || hasKeyword;
-}
-
-function inferDestinationFromEvent(event, fallbackDestination = 'Desconocido') {
-    const summary = String(event.summary || '');
-    const location = String(event.location || '');
-    const routeMatch = summary.match(/(?:to|a)\s+([A-Za-zÀ-ÿ\s]+)/i);
-    if (routeMatch?.[1]) return routeMatch[1].trim();
-    if (location) return location.split(',')[0].trim();
-    return fallbackDestination;
-}
-
-function updateCalendarPreviewCount() {
-    const countEl = document.getElementById('calendar-preview-count');
-    const checkboxes = Array.from(document.querySelectorAll('#calendar-preview-list input[type="checkbox"]'));
-    const selected = checkboxes.filter((input) => input.checked).length;
-    if (countEl) {
-        countEl.textContent = `${selected} seleccionados`;
-    }
-}
-
-function closeCalendarPreviewModal(result = null) {
-    const modal = document.getElementById('calendar-preview-modal');
-    if (modal?.contains(document.activeElement)) {
-        document.activeElement.blur();
-    }
-    modal?.classList.add('modal-hidden');
-    modal?.classList.remove('modal-visible');
-    modal?.setAttribute('aria-hidden', 'true');
-
-    if (calendarPreviewResolver) {
-        calendarPreviewResolver(result);
-    }
-    calendarPreviewResolver = null;
-    calendarPreviewCandidates = [];
-}
-
-function renderCalendarPreviewCandidates(candidates) {
-    const list = document.getElementById('calendar-preview-list');
-    if (!list) return;
-
-    list.innerHTML = candidates.map((candidate, index) => {
-        const flight = candidate.flightPayload;
-        const eventSummary = escapeHtml(candidate.eventSummary || 'Evento sin titulo');
-        return `
-            <label class="calendar-candidate">
-                <input type="checkbox" data-index="${index}" checked>
-                <div class="calendar-candidate-main">
-                    <span class="calendar-candidate-route"><strong>${escapeHtml(flight.flightNumber)}</strong> · ${escapeHtml(flight.origin)} → ${escapeHtml(flight.destination)}</span>
-                    <span class="calendar-candidate-meta">${escapeHtml(flight.date)} · ${escapeHtml(flight.country)} · ${Math.round(Number(flight.distance || 0))} km</span>
-                    <span class="calendar-candidate-meta">Evento: ${eventSummary}</span>
-                </div>
-            </label>
-        `;
-    }).join('');
-
-    list.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-        input.addEventListener('change', updateCalendarPreviewCount);
-    });
-
-    updateCalendarPreviewCount();
-}
-
-function openCalendarPreviewModal(candidates) {
-    const modal = document.getElementById('calendar-preview-modal');
-    const list = document.getElementById('calendar-preview-list');
-    if (!modal || !list) return Promise.resolve(null);
-
-    calendarPreviewCandidates = candidates;
-    renderCalendarPreviewCandidates(candidates);
-
-    modal.classList.remove('modal-hidden');
-    modal.classList.add('modal-visible');
-    modal.setAttribute('aria-hidden', 'false');
-
-    return new Promise((resolve) => {
-        calendarPreviewResolver = resolve;
-    });
-}
-
-async function syncFlightsFromGoogleCalendar() {
-    const flightsRef = getFlightsCollectionRef();
-    if (!flightsRef || !currentUser) {
-        alert('Debes iniciar sesión para sincronizar.');
-        return;
-    }
-
-    const usesGoogleProvider = currentUser.providerData.some((provider) => provider.providerId === 'google.com');
-    if (!usesGoogleProvider) {
-        alert('La sincronización de Calendar requiere sesión iniciada con Google.');
-        return;
-    }
-
-    try {
-        const provider = new GoogleAuthProvider();
-        provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-        provider.setCustomParameters({ prompt: 'consent' });
-
-        const authResult = await reauthenticateWithPopup(currentUser, provider);
-        const credential = GoogleAuthProvider.credentialFromResult(authResult);
-        const accessToken = credential?.accessToken;
-
-        if (!accessToken) {
-            alert('No se pudo obtener token de Calendar.');
-            return;
-        }
-
-        const now = new Date();
-        const timeMin = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString();
-        const timeMax = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()).toISOString();
-        const calendarUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
-
-        let response;
-        try {
-            response = await fetch(calendarUrl, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`
-                }
-            });
-        } catch (networkError) {
-            throw {
-                code: 'calendar/network-error',
-                message: networkError?.message || 'network error'
-            };
-        }
-
-        if (!response.ok) {
-            let details = '';
-            try {
-                const errorPayload = await response.json();
-                details = errorPayload?.error?.message || JSON.stringify(errorPayload);
-            } catch {
-                try {
-                    details = await response.text();
-                } catch {
-                    details = '';
-                }
-            }
-
-            throw {
-                code: `calendar/api-${response.status}`,
-                message: `Calendar API ${response.status}`,
-                details
-            };
-        }
-
-        const payload = await response.json();
-        const events = Array.isArray(payload.items) ? payload.items : [];
-        const candidateEvents = events.filter(isLikelyFlightEvent);
-
-        if (candidateEvents.length === 0) {
-            alert('No se encontraron eventos de vuelos en Calendar.');
-            return;
-        }
-
-        const currentSnapshot = await getDocs(flightsRef);
-        const existingSignatures = new Set(
-            currentSnapshot.docs.map((docSnapshot) => buildFlightSignature(docSnapshot.data()))
-        );
-
-        let imported = 0;
-        let skipped = 0;
-        let lowQuality = 0;
-        let failed = 0;
-        const preparedCandidates = [];
-
-        for (const event of candidateEvents) {
-            const eventHaystack = normalizeTextToken(`${event.summary || ''} ${event.description || ''} ${event.location || ''}`);
-            const hasAviationContext = ['flight', 'vuelo', 'boarding', 'airline', 'aerolinea', 'gate', 'pnr', 'itinerary', 'terminal', 'boarding pass']
-                .some((keyword) => eventHaystack.includes(keyword));
-
-            const flightNumber = extractFlightNumberFromText(`${event.summary || ''} ${event.description || ''}`);
-            if (!flightNumber) {
-                lowQuality++;
-                continue;
-            }
-
-            const code = flightNumber.slice(0, 2).toUpperCase();
-            const number = flightNumber.slice(2);
-            const knownRoute = flightDatabase[code]?.routes?.[number];
-            let liveRoute = null;
-            if (!knownRoute) {
-                liveRoute = await lookupFlightLive(flightNumber);
-            }
-
-            const extractedRoute = extractRouteFromEvent(event);
-            // Si no valida contra rutas conocidas/live y no hay contexto fuerte, lo descartamos.
-            if (!knownRoute && !liveRoute && !hasAviationContext) {
-                lowQuality++;
-                continue;
-            }
-
-            const origin = knownRoute?.origin || liveRoute?.origin || extractedRoute?.origin;
-            const destination = knownRoute?.destination || liveRoute?.destination || extractedRoute?.destination || inferDestinationFromEvent(event);
-            if (!origin || !destination || normalizeTextToken(origin) === normalizeTextToken(destination)) {
-                lowQuality++;
-                continue;
-            }
-
-            const distance = knownRoute?.distance || liveRoute?.distance || 1000;
-            const country = knownRoute?.country || liveRoute?.country || cityToCountryMap[destination] || 'Desconocido';
-            const date = String(event.start?.dateTime || event.start?.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
-
-            const flightPayload = normalizeFlightPayload({
-                origin,
-                destination,
-                distance,
-                date,
-                country,
-                flightNumber,
-                category: 'Personal',
-                rating: 5
-            });
-
-            const signature = buildFlightSignature(flightPayload);
-            preparedCandidates.push({
-                eventSummary: event.summary || '',
-                signature,
-                flightPayload
-            });
-        }
-
-        if (preparedCandidates.length === 0) {
-            alert('No se detectaron vuelos importables despues del filtrado de calidad.');
-            return;
-        }
-
-        const selectedCandidates = await openCalendarPreviewModal(preparedCandidates);
-        if (!selectedCandidates) {
-            alert('Importacion cancelada por el usuario.');
-            return;
-        }
-
-        if (selectedCandidates.length === 0) {
-            alert('No seleccionaste vuelos para importar.');
-            return;
-        }
-
-        for (const candidate of selectedCandidates) {
-            if (existingSignatures.has(candidate.signature)) {
-                skipped++;
-                continue;
-            }
-
-            try {
-                await addDoc(flightsRef, candidate.flightPayload);
-                existingSignatures.add(candidate.signature);
-                imported++;
-            } catch (error) {
-                console.error('Error importando evento de Calendar:', error);
-                failed++;
-            }
-        }
-
-        await loadFlights();
-        alert(`Sincronización Calendar finalizada.\n\nImportados: ${imported}\nDuplicados omitidos: ${skipped}\nEventos descartados por baja calidad: ${lowQuality}\nErrores: ${failed}`);
-    } catch (error) {
-        const message = getGoogleAuthErrorMessage(error, 'calendar');
-        if (message === 'cancelled') {
-            console.info('Sincronización Calendar cancelada por el usuario.');
-            return;
-        }
-        console.error('Error sincronizando con Google Calendar:', error);
-        alert(message);
-    }
 }
 
 function ensureAuthenticated() {
@@ -602,16 +242,8 @@ function setupAuthControls() {
     const registerBtn = document.getElementById('auth-register');
     const googleBtn = document.getElementById('auth-google');
     const resetBtn = document.getElementById('auth-reset');
-    const accountSyncCalendarBtn = document.getElementById('account-sync-calendar');
     const accountResetBtn = document.getElementById('account-reset');
     const accountLogoutBtn = document.getElementById('account-logout');
-    const calendarPreviewModal = document.getElementById('calendar-preview-modal');
-    const closeCalendarPreviewBtn = document.getElementById('close-calendar-preview');
-    const calendarPreviewOverlay = document.getElementById('calendar-preview-overlay');
-    const calendarPreviewSelectAllBtn = document.getElementById('calendar-preview-select-all');
-    const calendarPreviewClearAllBtn = document.getElementById('calendar-preview-clear-all');
-    const calendarPreviewCancelBtn = document.getElementById('calendar-preview-cancel');
-    const calendarPreviewImportBtn = document.getElementById('calendar-preview-import');
     const accountTrigger = document.getElementById('account-trigger');
     const accountMenu = document.getElementById('account-menu');
     const accountUser = document.getElementById('account-user');
@@ -666,44 +298,9 @@ function setupAuthControls() {
             hideAuthModal();
         }
 
-        if (event.key === 'Escape' && calendarPreviewModal?.classList.contains('modal-visible')) {
-            closeCalendarPreviewModal(null);
-        }
-
         if (event.key === 'Escape' && accountMenu && !accountMenu.classList.contains('auth-hidden')) {
             closeAccountMenu();
         }
-    });
-
-    closeCalendarPreviewBtn?.addEventListener('click', () => closeCalendarPreviewModal(null));
-    calendarPreviewOverlay?.addEventListener('click', () => closeCalendarPreviewModal(null));
-    calendarPreviewCancelBtn?.addEventListener('click', () => closeCalendarPreviewModal(null));
-
-    calendarPreviewSelectAllBtn?.addEventListener('click', () => {
-        document.querySelectorAll('#calendar-preview-list input[type="checkbox"]').forEach((input) => {
-            input.checked = true;
-        });
-        updateCalendarPreviewCount();
-    });
-
-    calendarPreviewClearAllBtn?.addEventListener('click', () => {
-        document.querySelectorAll('#calendar-preview-list input[type="checkbox"]').forEach((input) => {
-            input.checked = false;
-        });
-        updateCalendarPreviewCount();
-    });
-
-    calendarPreviewImportBtn?.addEventListener('click', () => {
-        const selectedIndexes = Array.from(document.querySelectorAll('#calendar-preview-list input[type="checkbox"]'))
-            .filter((input) => input.checked)
-            .map((input) => Number(input.getAttribute('data-index')))
-            .filter((index) => Number.isInteger(index));
-
-        const selectedCandidates = selectedIndexes
-            .map((index) => calendarPreviewCandidates[index])
-            .filter(Boolean);
-
-        closeCalendarPreviewModal(selectedCandidates);
     });
 
     const readCredentials = (mode = 'login') => {
@@ -800,11 +397,6 @@ function setupAuthControls() {
             console.error('Error enviando recovery email:', error);
             alert('No se pudo enviar el correo de recuperación.');
         }
-    });
-
-    accountSyncCalendarBtn?.addEventListener('click', async () => {
-        await syncFlightsFromGoogleCalendar();
-        closeAccountMenu();
     });
 
     accountLogoutBtn?.addEventListener('click', async () => {

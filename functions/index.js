@@ -51,6 +51,7 @@ async function verifyFirebaseUser(req) {
     }
 
     const idToken = authHeader.replace('Bearer ', '').trim();
+
     if (!idToken) {
         return null;
     }

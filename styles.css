@@ -137,7 +137,6 @@ h1 {
 }
 
 #open-auth-modal,
-#account-sync-calendar,
 #account-reset,
 #account-logout,
 #auth-login,
@@ -226,7 +225,6 @@ h1 {
 }
 
 #open-auth-modal:hover,
-#account-sync-calendar:hover,
 #account-reset:hover,
 #account-logout:hover,
 #auth-login:hover,
@@ -340,141 +338,6 @@ body.auth-locked #load-sample {
 #auth-password:focus {
     outline: none;
     border-color: #4c4c4c;
-}
-
-#calendar-preview-modal {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
-    z-index: 1310;
-}
-
-#calendar-preview-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: blur(4px);
-}
-
-#calendar-preview-dialog {
-    width: min(760px, 96vw);
-    max-height: calc(100vh - 2rem);
-    overflow: auto;
-    border-radius: 14px;
-    border: 1px solid #2b2b2b;
-    background: #0c0c0c;
-    padding: 1rem;
-    position: relative;
-    z-index: 2;
-}
-
-#close-calendar-preview {
-    position: absolute;
-    right: 10px;
-    top: 10px;
-    border: 1px solid #2f2f2f;
-    background: #151515;
-    color: #d9d9d9;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-#close-calendar-preview:hover {
-    background: #1f1f1f;
-}
-
-#calendar-preview-title {
-    margin: 0;
-    font-size: 0.98rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #cfcfcf;
-}
-
-#calendar-preview-tools {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.7rem;
-}
-
-#calendar-preview-select-all,
-#calendar-preview-clear-all,
-#calendar-preview-cancel,
-#calendar-preview-import {
-    border: 1px solid #2f2f2f;
-    border-radius: 999px;
-    background: #121212;
-    color: #e9e9e9;
-    padding: 0.32rem 0.66rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    cursor: pointer;
-}
-
-#calendar-preview-import {
-    background: #f4f4f4;
-    color: #0d0d0d;
-    border-color: #f4f4f4;
-}
-
-#calendar-preview-count {
-    font-size: 0.75rem;
-    color: #9ca3af;
-    margin-left: auto;
-}
-
-#calendar-preview-list {
-    display: grid;
-    gap: 0.45rem;
-    max-height: 48vh;
-    overflow: auto;
-    padding-right: 0.2rem;
-}
-
-.calendar-candidate {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.55rem;
-    padding: 0.6rem;
-    border: 1px solid #282828;
-    border-radius: 10px;
-    background: #111111;
-}
-
-.calendar-candidate input[type='checkbox'] {
-    margin-top: 0.18rem;
-    accent-color: #ffffff;
-}
-
-.calendar-candidate-main {
-    display: grid;
-    gap: 0.2rem;
-}
-
-.calendar-candidate-route {
-    font-size: 0.86rem;
-    color: #f3f4f6;
-}
-
-.calendar-candidate-meta {
-    font-size: 0.73rem;
-    color: #9ca3af;
-}
-
-#calendar-preview-actions {
-    margin-top: 0.8rem;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.45rem;
 }
 
 #open-register-modal {
