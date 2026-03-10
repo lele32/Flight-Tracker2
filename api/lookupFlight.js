@@ -194,21 +194,52 @@ module.exports = async (req, res) => {
     try {
         log('info', 'Looking up flight', { flightNumber: flightNumberRaw, ip: clientIP });
         
-        const flightsUrl = `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(API_KEY)}&flight_iata=${encodeURIComponent(flightNumberRaw)}&limit=10`;
-        const flightsResponse = await fetch(flightsUrl);
-        if (!flightsResponse.ok) {
-            log('error', 'Provider unavailable', { 
-                status: flightsResponse.status, 
+        const compact = flightNumberRaw.replace(/\s+/g, '').replace(/-/g, '');
+        const match = compact.match(/^([A-Z]{2,3})(\d{1,4})$/);
+        const queryUrls = [
+            `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(API_KEY)}&flight_iata=${encodeURIComponent(flightNumberRaw)}&limit=10`
+        ];
+        if (match) {
+            queryUrls.push(
+                `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(API_KEY)}&airline_iata=${encodeURIComponent(match[1])}&flight_number=${encodeURIComponent(match[2])}&limit=10`
+            );
+        }
+
+        let flightsPayload = null;
+        let providerReachable = false;
+
+        for (const flightsUrl of queryUrls) {
+            const flightsResponse = await fetch(flightsUrl);
+            if (!flightsResponse.ok) {
+                log('warn', 'Provider response not ok', {
+                    status: flightsResponse.status,
+                    flightNumber: flightNumberRaw,
+                    ip: clientIP
+                });
+                continue;
+            }
+
+            providerReachable = true;
+            const payload = await flightsResponse.json();
+            if (payload?.error) continue;
+
+            if (Array.isArray(payload?.data) && payload.data.length > 0) {
+                flightsPayload = payload;
+                break;
+            }
+        }
+
+        if (!providerReachable) {
+            log('error', 'Provider unavailable', {
                 flightNumber: flightNumberRaw,
-                ip: clientIP 
+                ip: clientIP
             });
             requestStats.notFound++;
             res.status(200).json({ found: false, providerUnavailable: true });
             return;
         }
 
-        const flightsPayload = await flightsResponse.json();
-        if (flightsPayload?.error) {
+        if (!flightsPayload) {
             log('info', 'Flight not found in provider', { flightNumber: flightNumberRaw, ip: clientIP });
             requestStats.notFound++;
             res.status(200).json({ found: false });
