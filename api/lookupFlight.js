@@ -67,6 +67,7 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
 function setCors(res, rateLimitInfo = {}) {
     const allowedOrigins = [
         'https://lele32.github.io',
+        'https://flight-tracker-deploy.vercel.app',
         'http://localhost:5500',
         'http://127.0.0.1:5500'
     ];
