@@ -1800,6 +1800,8 @@ function setupDatabaseManager() {
         }
     });
 
+    const dbAddSubmit = document.getElementById('db-add-submit');
+
     addForm?.addEventListener('submit', async (event) => {
         event.preventDefault();
 
@@ -1823,6 +1825,18 @@ function setupDatabaseManager() {
             return;
         }
 
+        // Prevenir doble-click y detectar duplicados antes de guardar
+        if (dbAddSubmit) dbAddSubmit.disabled = true;
+        const newSig = buildFlightSignature({ flightNumber, date, origin, destination, distance });
+        const isDuplicate = allFlights.some(f => buildFlightSignature(f) === newSig);
+        if (isDuplicate) {
+            const proceed = confirm(`⚠️ Ya existe un vuelo con el mismo número, fecha y ruta (${flightNumber} – ${origin} → ${destination} el ${date}). ¿Guardarlo de todas formas?`);
+            if (!proceed) {
+                if (dbAddSubmit) dbAddSubmit.disabled = false;
+                return;
+            }
+        }
+
         try {
             await addDoc(flightsRef, {
                 origin,
@@ -1840,11 +1854,13 @@ function setupDatabaseManager() {
             document.getElementById('db-origin').value = 'Buenos Aires';
             document.getElementById('db-category').value = 'Personal';
             document.getElementById('db-rating').value = '5';
+            if (dbAddSubmit) dbAddSubmit.disabled = false;
             await loadFlights();
             renderDatabaseTable(allFlights);
         } catch (error) {
             console.error('Error agregando vuelo manual:', error);
             alert('No se pudo agregar el vuelo manualmente.');
+            if (dbAddSubmit) dbAddSubmit.disabled = false;
         }
     });
 
@@ -2108,6 +2124,18 @@ async function setupForm() {
             return;
         }
 
+        // Prevenir doble-click y detectar duplicados antes de guardar
+        submitBtn.disabled = true;
+        const newSig = buildFlightSignature({ flightNumber, date, origin, destination, distance });
+        const isDuplicate = allFlights.some(f => buildFlightSignature(f) === newSig);
+        if (isDuplicate) {
+            const proceed = confirm(`⚠️ Ya existe un vuelo con el mismo número, fecha y ruta (${flightNumber} – ${origin} → ${destination} el ${date}). ¿Guardarlo de todas formas?`);
+            if (!proceed) {
+                submitBtn.disabled = false;
+                return;
+            }
+        }
+
         try {
             await addDoc(flightsRef, {
                 origin,
@@ -2130,7 +2158,6 @@ async function setupForm() {
             form.reset();
             flightInfo.style.display = 'none';
             flightError.style.display = 'none';
-            submitBtn.disabled = true;
             currentFlightData = null;
             const defaultRating = document.getElementById('star5');
             if (defaultRating) defaultRating.checked = true;
@@ -2139,6 +2166,7 @@ async function setupForm() {
         } catch (error) {
             console.error('Error registrando vuelo:', error);
             alert('Error registrando vuelo');
+            submitBtn.disabled = false;
         }
     });
 
