@@ -901,7 +901,9 @@ const flightDatabase = {
     }},
     // Avianca
     'AV': { airline: 'Avianca', routes: {
-        '218': { origin: 'Buenos Aires', destination: 'Bogotá', distance: 4680, country: 'Colombia' }
+        '72': { origin: 'Bogotá', destination: 'Madrid', distance: 8020, country: 'España' },
+        '218': { origin: 'Buenos Aires', destination: 'Bogotá', distance: 4680, country: 'Colombia' },
+        '87': { origin: 'Bogotá', destination: 'Buenos Aires', distance: 4680, country: 'Argentina' }
     }},
     // JetSmart
     'JA': { airline: 'JetSmart', routes: {

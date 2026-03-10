@@ -202,8 +202,8 @@ module.exports = async (req, res) => {
                 flightNumber: flightNumberRaw,
                 ip: clientIP 
             });
-            requestStats.errors++;
-            res.status(502).json({ error: 'provider-unavailable' });
+            requestStats.notFound++;
+            res.status(200).json({ found: false, providerUnavailable: true });
             return;
         }
 
