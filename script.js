@@ -57,7 +57,7 @@ let currentUser = null;
 const googleProvider = new GoogleAuthProvider();
 let openAuthModal = () => {};
 const FLIGHT_LOOKUP_PROXY_URL_STORAGE = 'flightTracker_lookup_proxy_url';
-const FLIGHT_LOOKUP_PROXY_URL_DEFAULT = 'http://localhost:3000/lookupFlight';
+const FLIGHT_LOOKUP_PROXY_URL_DEFAULT = 'https://flight-tracker-zeta-tawny.vercel.app/api/lookupFlight';
 let isLiveLookupAvailable = true;
 
 function validatePasswordStrength(password) {
@@ -106,7 +106,15 @@ function getFlightsCollectionRef() {
 function getFlightLookupProxyUrl() {
     try {
         const stored = (localStorage.getItem(FLIGHT_LOOKUP_PROXY_URL_STORAGE) || '').trim();
-        return stored || FLIGHT_LOOKUP_PROXY_URL_DEFAULT;
+        if (!stored) return FLIGHT_LOOKUP_PROXY_URL_DEFAULT;
+
+        const normalized = stored.toLowerCase();
+        if (normalized.includes('localhost') || normalized.includes('127.0.0.1')) {
+            localStorage.removeItem(FLIGHT_LOOKUP_PROXY_URL_STORAGE);
+            return FLIGHT_LOOKUP_PROXY_URL_DEFAULT;
+        }
+
+        return stored;
     } catch {
         return FLIGHT_LOOKUP_PROXY_URL_DEFAULT;
     }
@@ -703,13 +711,8 @@ function normalizeCountryName(country, destination = '') {
     return cityToCountryMap[destinationCity] || 'Desconocido';
 }
 
-// Mensaje de inicio
-console.log('%c✈️ Flight Tracker iniciado', 'color: #667eea; font-size: 16px; font-weight: bold;');
-console.log('%cNota: Los errores de "SES" o "runtime.lastError" son de extensiones del navegador, no de la app', 'color: #FFB800; font-size: 12px;');
-
 // Esperar a que Firebase esté listo
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('%c📡 Inicializando componentes...', 'color: #667eea; font-size: 12px;');
     initializeMap();
     setupFilters();
     setupAuthControls();
@@ -1950,7 +1953,6 @@ async function setupForm() {
                 rating,
                 durationHours
             });
-            console.log(`%c✅ Vuelo ${flightNumber} registrado exitosamente`, 'color: #28a745; font-size: 12px;');
             alert(`✈️ Vuelo ${flightNumber} registrado exitosamente`);
             form.reset();
             flightInfo.style.display = 'none';
@@ -1989,7 +1991,6 @@ async function loadSampleData() {
         for (const doc of querySnapshot.docs) {
             await deleteDoc(doc.ref);
         }
-        console.log('%c🗑️ Base de datos limpiada', 'color: #FFA500; font-size: 12px;');
     } catch (error) {
         console.warn('No se pudieron borrar los datos antiguos:', error);
     }
@@ -2062,7 +2063,6 @@ async function loadSampleData() {
             errorCount++;
         }
     }
-    console.log(`%c✅ Datos cargados: ${successCount} vuelos agregados, ${errorCount} errores`, 'color: #28a745; font-size: 12px;');
     alert(`✈️ Se cargaron ${successCount} vuelos de ejemplo exitosamente!\n\nAhora puedes ver:\n• Marcadores de origen por aerolínea desde diferentes ciudades\n• Marcadores de destino con colores únicos\n• Líneas punteadas conectando cada ruta\n• Popups detallados con información por aerolínea y origen`);
 }
 
@@ -2124,7 +2124,6 @@ async function loadFlights() {
 
             allFlights.push({ id: docSnapshot.id, ...data });
         }
-        console.log(`%c📊 ${allFlights.length} vuelos cargados`, 'color: #28a745; font-size: 12px;');
         processFlights(allFlights);
         renderDatabaseTable(allFlights);
     } catch (error) {

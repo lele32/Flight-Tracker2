@@ -6,3 +6,4 @@ firebaseConfig.js
 dist/
 build/
 .vscode/settings.json
+.vercel
