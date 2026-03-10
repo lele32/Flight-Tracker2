@@ -1,5 +1,56 @@
 const API_KEY = process.env.AVIATIONSTACK_API_KEY;
 
+// Rate limiting: almacén en memoria (se reinicia con cada cold start)
+const requestCounts = new Map();
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minuto
+const MAX_REQUESTS_PER_WINDOW = 30; // 30 requests por minuto por IP
+
+// Analytics: contador simple
+let requestStats = {
+    total: 0,
+    found: 0,
+    notFound: 0,
+    errors: 0,
+    startTime: Date.now()
+};
+
+function log(level, message, data = {}) {
+    const entry = {
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        ...data
+    };
+    console.log(JSON.stringify(entry));
+}
+
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const clientData = requestCounts.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS };
+    
+    // Resetear contador si la ventana expiró
+    if (now >= clientData.resetTime) {
+        clientData.count = 0;
+        clientData.resetTime = now + RATE_LIMIT_WINDOW_MS;
+    }
+    
+    clientData.count++;
+    requestCounts.set(ip, clientData);
+    
+    const isLimited = clientData.count > MAX_REQUESTS_PER_WINDOW;
+    const remaining = Math.max(0, MAX_REQUESTS_PER_WINDOW - clientData.count);
+    const resetIn = Math.ceil((clientData.resetTime - now) / 1000);
+    
+    return { isLimited, remaining, resetIn, count: clientData.count };
+}
+
+function getClientIP(req) {
+    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+           req.headers['x-real-ip'] ||
+           req.socket?.remoteAddress ||
+           'unknown';
+}
+
 function haversineDistanceKm(lat1, lon1, lat2, lon2) {
     const toRad = (deg) => (deg * Math.PI) / 180;
     const R = 6371;
@@ -13,7 +64,7 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
     return Math.round(R * c);
 }
 
-function setCors(res) {
+function setCors(res, rateLimitInfo = {}) {
     const allowedOrigins = [
         'https://lele32.github.io',
         'http://localhost:5500',
@@ -30,6 +81,13 @@ function setCors(res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '1; mode=block');
+    
+    // Rate limiting headers
+    if (rateLimitInfo.remaining !== undefined) {
+        res.setHeader('X-RateLimit-Limit', MAX_REQUESTS_PER_WINDOW);
+        res.setHeader('X-RateLimit-Remaining', rateLimitInfo.remaining);
+        res.setHeader('X-RateLimit-Reset', rateLimitInfo.resetIn);
+    }
 }
 
 function pickFlightCandidate(items) {
@@ -63,7 +121,24 @@ async function getAirportDetails(iataCode) {
 }
 
 module.exports = async (req, res) => {
-    setCors(res);
+    const startTime = Date.now();
+    const clientIP = getClientIP(req);
+    const flightNumber = req.query.flightNumber || 'unknown';
+    
+    // Analytics: incrementar contador total
+    requestStats.total++;
+    
+    // Logging: request recibido
+    log('info', 'Request received', { 
+        ip: clientIP, 
+        method: req.method, 
+        flightNumber,
+        userAgent: req.headers['user-agent']
+    });
+
+    // Rate limiting check
+    const rateLimitInfo = checkRateLimit(clientIP);
+    setCors(res, rateLimitInfo);
 
     if (req.method === 'OPTIONS') {
         res.status(204).end();
@@ -71,11 +146,30 @@ module.exports = async (req, res) => {
     }
 
     if (req.method !== 'GET') {
+        log('warn', 'Method not allowed', { method: req.method, ip: clientIP });
         res.status(405).json({ error: 'method-not-allowed' });
         return;
     }
 
+    // Rate limiting enforcement
+    if (rateLimitInfo.isLimited) {
+        log('warn', 'Rate limit exceeded', { 
+            ip: clientIP, 
+            count: rateLimitInfo.count,
+            flightNumber 
+        });
+        requestStats.errors++;
+        res.status(429).json({ 
+            error: 'rate-limit-exceeded',
+            message: 'Demasiadas solicitudes. Intenta de nuevo más tarde.',
+            retryAfter: rateLimitInfo.resetIn
+        });
+        return;
+    }
+
     if (!API_KEY) {
+        log('error', 'API key not configured', { ip: clientIP });
+        requestStats.errors++;
         res.status(500).json({ error: 'api-key-not-configured' });
         return;
     }
@@ -83,31 +177,47 @@ module.exports = async (req, res) => {
     const flightNumberRaw = String(req.query.flightNumber || '').trim().toUpperCase();
     
     if (!flightNumberRaw || flightNumberRaw.length < 2 || flightNumberRaw.length > 10) {
+        log('warn', 'Invalid flight number length', { flightNumber: flightNumberRaw, ip: clientIP });
+        requestStats.errors++;
         res.status(400).json({ error: 'invalid-flight-number-length' });
         return;
     }
     
     if (!/^[A-Z0-9-]+$/.test(flightNumberRaw)) {
+        log('warn', 'Invalid flight number format', { flightNumber: flightNumberRaw, ip: clientIP });
+        requestStats.errors++;
         res.status(400).json({ error: 'invalid-flight-number-format' });
         return;
     }
 
     try {
+        log('info', 'Looking up flight', { flightNumber: flightNumberRaw, ip: clientIP });
+        
         const flightsUrl = `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(API_KEY)}&flight_iata=${encodeURIComponent(flightNumberRaw)}&limit=10`;
         const flightsResponse = await fetch(flightsUrl);
         if (!flightsResponse.ok) {
+            log('error', 'Provider unavailable', { 
+                status: flightsResponse.status, 
+                flightNumber: flightNumberRaw,
+                ip: clientIP 
+            });
+            requestStats.errors++;
             res.status(502).json({ error: 'provider-unavailable' });
             return;
         }
 
         const flightsPayload = await flightsResponse.json();
         if (flightsPayload?.error) {
+            log('info', 'Flight not found in provider', { flightNumber: flightNumberRaw, ip: clientIP });
+            requestStats.notFound++;
             res.status(200).json({ found: false });
             return;
         }
 
         const item = pickFlightCandidate(flightsPayload?.data);
         if (!item) {
+            log('info', 'No valid flight candidate found', { flightNumber: flightNumberRaw, ip: clientIP });
+            requestStats.notFound++;
             res.status(200).json({ found: false });
             return;
         }
@@ -126,6 +236,21 @@ module.exports = async (req, res) => {
         }
 
         const country = arrDetails?.country || arrival.country || 'Desconocido';
+        
+        const responseTime = Date.now() - startTime;
+        
+        // Analytics: incrementar contador de éxitos
+        requestStats.found++;
+        
+        log('info', 'Flight found successfully', {
+            flightNumber: flightNumberRaw,
+            origin,
+            destination,
+            country,
+            distance,
+            responseTime,
+            ip: clientIP
+        });
 
         res.status(200).json({
             found: true,
@@ -136,7 +261,17 @@ module.exports = async (req, res) => {
             departureIata: departure.iata || null,
             arrivalIata: arrival.iata || null
         });
-    } catch {
+    } catch (error) {
+        const responseTime = Date.now() - startTime;
+        
+        log('error', 'Internal error', {
+            flightNumber: flightNumberRaw,
+            error: error.message,
+            responseTime,
+            ip: clientIP
+        });
+        
+        requestStats.errors++;
         res.status(500).json({ error: 'internal-error' });
     }
 };
