@@ -3337,7 +3337,8 @@ function getCountryFlag(country) {
         'Australia': '🇦🇺',
         'Chile': '🇨🇱',
         'Uruguay': '🇺🇾',
-        'Argentina': '🇦🇷'
+        'Argentina': '🇦🇷',
+        'Paraguay': '🇵🇾'
     };
 
     const normalizedCountry = normalizeCountryName(country);
