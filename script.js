@@ -902,8 +902,9 @@ const flightDatabase = {
     // Avianca
     'AV': { airline: 'Avianca', routes: {
         '72': { origin: 'Bogotá', destination: 'Ciudad de México', distance: 3160, country: 'México' },
-        '187': { origin: 'Buenos Aires', destination: 'Bogotá', distance: 4680, country: 'Colombia' },
+        '187': { origin: 'Ciudad de México', destination: 'Bogotá', distance: 3160, country: 'Colombia' },
         '218': { origin: 'Buenos Aires', destination: 'Bogotá', distance: 4680, country: 'Colombia' },
+        '8395': { origin: 'Bogotá', destination: 'Buenos Aires', distance: 4680, country: 'Argentina' },
         '87': { origin: 'Bogotá', destination: 'Buenos Aires', distance: 4680, country: 'Argentina' }
     }},
     // JetSmart
@@ -2626,6 +2627,48 @@ async function setupForm() {
         }
     });
 
+    const setFlightInfoPanel = (flightData) => {
+        const estimatedDuration = estimateDurationHours(flightData.distance);
+        const routeOrigin = flightData.origin || 'Buenos Aires';
+        document.getElementById('info-origin').textContent = routeOrigin;
+        document.getElementById('info-destination').textContent = flightData.destination;
+        document.getElementById('info-distance').textContent = flightData.distance + ' km';
+        document.getElementById('info-duration').textContent = formatDuration(estimatedDuration);
+        document.getElementById('info-country').textContent = flightData.country;
+        flightInfo.style.display = 'block';
+        flightError.style.display = 'none';
+    };
+
+    const buildManualFlightData = (flightNumberValue) => {
+        const originInput = prompt('No encontramos ese vuelo automaticamente. Ingresa ciudad de origen:', 'Bogotá');
+        if (originInput === null) return null;
+        const destinationInput = prompt('Ingresa ciudad de destino:', 'Buenos Aires');
+        if (destinationInput === null) return null;
+        const countryInput = prompt('Ingresa pais destino:', normalizeCountryName('', destinationInput));
+        if (countryInput === null) return null;
+        const distanceInput = prompt('Ingresa distancia aproximada en km:', '3000');
+        if (distanceInput === null) return null;
+
+        const distance = Number(distanceInput);
+        if (!originInput.trim() || !destinationInput.trim() || !countryInput.trim() || !Number.isFinite(distance) || distance <= 0) {
+            alert('Datos manuales invalidos. Vuelve a intentarlo.');
+            return null;
+        }
+
+        return {
+            origin: normalizeOriginCity(originInput.trim()),
+            destination: normalizeDestinationCity(destinationInput.trim()),
+            distance: Math.round(distance),
+            country: normalizeCountryName(countryInput.trim(), destinationInput.trim()),
+            departureIata: String(flightNumberValue || '').substring(0, 2).toUpperCase() || null,
+            arrivalIata: null,
+            originLat: null,
+            originLng: null,
+            destinationLat: null,
+            destinationLng: null
+        };
+    };
+
     flightNumberInput.addEventListener('blur', async () => {
         const flightNumber = flightNumberInput.value.trim();
         if (flightNumber.length >= 3) {
@@ -2633,20 +2676,23 @@ async function setupForm() {
             const flightData = await lookupFlightWithFallback(flightNumber);
             if (flightData) {
                 currentFlightData = flightData;
-                const estimatedDuration = estimateDurationHours(flightData.distance);
-                const routeOrigin = flightData.origin || 'Buenos Aires';
-                document.getElementById('info-origin').textContent = routeOrigin;
-                document.getElementById('info-destination').textContent = flightData.destination;
-                document.getElementById('info-distance').textContent = flightData.distance + ' km';
-                document.getElementById('info-duration').textContent = formatDuration(estimatedDuration);
-                document.getElementById('info-country').textContent = flightData.country;
-                flightInfo.style.display = 'block';
-                flightError.style.display = 'none';
+                setFlightInfoPanel(flightData);
                 submitBtn.disabled = false;
             } else {
+                const useManualData = confirm('No pudimos reconocer el vuelo automaticamente. ¿Quieres cargarlo manualmente ahora?');
+                if (useManualData) {
+                    const manualData = buildManualFlightData(flightNumber);
+                    if (manualData) {
+                        currentFlightData = manualData;
+                        setFlightInfoPanel(manualData);
+                        submitBtn.disabled = false;
+                        return;
+                    }
+                }
+
                 flightInfo.style.display = 'none';
                 flightError.style.display = 'block';
-                flightError.textContent = '❌ Vuelo no encontrado en API o backend no disponible.';
+                flightError.textContent = '❌ Vuelo no encontrado. Puedes reintentar o cargarlo manualmente.';
                 submitBtn.disabled = true;
                 currentFlightData = null;
             }
