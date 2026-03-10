@@ -2492,6 +2492,10 @@ function renderMap(flights, highlightedFlight = null) {
 
     // Filtrar vuelos que tengan flightNumber
     const validFlights = flights.filter(f => f.flightNumber);
+    let renderedRoutes = 0;
+    let skippedRoutes = 0;
+    let renderedDestinations = 0;
+    let skippedDestinations = 0;
 
     // Agrupar vuelos por origen y aerolínea
     const flightsByOriginAirline = {};
@@ -2597,6 +2601,9 @@ function renderMap(flights, highlightedFlight = null) {
             }).addTo(map);
 
             flightLines.push(flightLine);
+            renderedRoutes += 1;
+        } else {
+            skippedRoutes += 1;
         }
     });
 
@@ -2672,6 +2679,9 @@ function renderMap(flights, highlightedFlight = null) {
                 .addTo(map);
 
             markers[destination] = marker;
+            renderedDestinations += 1;
+        } else {
+            skippedDestinations += 1;
         }
     });
 
@@ -2706,7 +2716,7 @@ function renderMap(flights, highlightedFlight = null) {
 
     const timelineStatus = document.getElementById('timeline-status');
     if (timelineStatus && !isAnimationMode) {
-        timelineStatus.textContent = `Modo normal • ${validFlights.length} vuelos`;
+        timelineStatus.textContent = `Modo normal • vuelos ${validFlights.length} • rutas ${renderedRoutes}/${renderedRoutes + skippedRoutes} • destinos ${renderedDestinations}/${renderedDestinations + skippedDestinations}`;
     }
 }
 
