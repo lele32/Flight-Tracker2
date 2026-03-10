@@ -140,7 +140,8 @@ function getFlightOriginCoords(flight) {
     const byIata = getAirportCoordinates(flight?.departureIata);
     if (byIata) return byIata;
 
-    return getCityCoordinates(flight?.origin || 'Buenos Aires');
+    const normalizedOrigin = normalizeOriginCity(flight?.origin || 'Buenos Aires');
+    return getCityCoordinates(normalizedOrigin);
 }
 
 function getFlightDestinationCoords(flight) {
@@ -151,7 +152,8 @@ function getFlightDestinationCoords(flight) {
     const byIata = getAirportCoordinates(flight?.arrivalIata);
     if (byIata) return byIata;
 
-    return getCityCoordinates(flight?.destination);
+    const normalizedDestination = normalizeDestinationCity(flight?.destination || 'Desconocido');
+    return getCityCoordinates(normalizedDestination);
 }
 
 const demoFallbackFlights = [
@@ -315,7 +317,7 @@ function normalizeFlightPayload(flight) {
     const destination = normalizeDestinationCity(flight.destination || 'Desconocido');
     const country = normalizeCountryName(flight.country, destination);
     return {
-        origin: flight.origin || 'Buenos Aires',
+        origin: normalizeOriginCity(flight.origin || 'Buenos Aires'),
         destination,
         distance: safeDistance,
         date: flight.date || new Date().toISOString().slice(0, 10),
@@ -830,6 +832,11 @@ function normalizeDestinationCity(destination) {
 
     if (cityToCountryMap[cleaned]) return cleaned;
     return raw;
+}
+
+function normalizeOriginCity(origin) {
+    const normalized = normalizeDestinationCity(origin || 'Buenos Aires');
+    return normalized === 'Desconocido' ? 'Buenos Aires' : normalized;
 }
 
 function normalizeCountryName(country, destination = '') {
@@ -2202,6 +2209,19 @@ async function loadFlights() {
             const data = docSnapshot.data();
             const migrationPayload = {};
 
+            const normalizedOrigin = normalizeOriginCity(data.origin || 'Buenos Aires');
+            const normalizedDestination = normalizeDestinationCity(data.destination || 'Desconocido');
+
+            if ((data.origin || 'Buenos Aires') !== normalizedOrigin) {
+                data.origin = normalizedOrigin;
+                migrationPayload.origin = normalizedOrigin;
+            }
+
+            if ((data.destination || 'Desconocido') !== normalizedDestination) {
+                data.destination = normalizedDestination;
+                migrationPayload.destination = normalizedDestination;
+            }
+
             // Migra documentos antiguos sin categoria.
             if (!data.category) {
                 data.category = 'Personal';
@@ -2220,16 +2240,15 @@ async function loadFlights() {
 
             // Migra documentos sin país: asignar país basado en la ciudad destino
             if (!data.country && data.destination) {
-                const normalizedDestination = normalizeDestinationCity(data.destination);
-                data.country = normalizeCountryName('', normalizedDestination);
+                data.country = normalizeCountryName('', data.destination);
                 migrationPayload.country = data.country;
                 console.log(`%c🗺️ País asignado a ${data.flightNumber}: ${data.country}`, 'color: #ffc107; font-size: 11px;');
             }
 
             // Migra documentos sin origen: asignar Buenos Aires como origen por defecto
             if (!data.origin) {
-                data.origin = 'Buenos Aires';
-                migrationPayload.origin = 'Buenos Aires';
+                data.origin = normalizedOrigin;
+                migrationPayload.origin = normalizedOrigin;
                 console.log(`%c🛫 Origen asignado a ${data.flightNumber}: Buenos Aires`, 'color: #ffc107; font-size: 11px;');
             }
 
@@ -2242,7 +2261,7 @@ async function loadFlights() {
                 }
             }
 
-            allFlights.push({ id: docSnapshot.id, ...data });
+            allFlights.push({ id: docSnapshot.id, ...normalizeFlightPayload(data) });
         }
         saveFlightsCache(allFlights);
         processFlights(allFlights);
@@ -2478,7 +2497,8 @@ function renderMap(flights, highlightedFlight = null) {
     const flightsByOriginAirline = {};
     validFlights.forEach(flight => {
         const airlineCode = flight.flightNumber.substring(0, 2).toUpperCase();
-        const origin = flight.origin || 'Buenos Aires';
+        const origin = normalizeOriginCity(flight.origin || 'Buenos Aires');
+        const destination = normalizeDestinationCity(flight.destination || 'Desconocido');
         const key = `${origin}_${airlineCode}`;
         if (!flightsByOriginAirline[key]) {
             flightsByOriginAirline[key] = {
@@ -2487,7 +2507,7 @@ function renderMap(flights, highlightedFlight = null) {
                 flights: []
             };
         }
-        flightsByOriginAirline[key].flights.push(flight);
+        flightsByOriginAirline[key].flights.push({ ...flight, origin, destination });
     });
 
     // Crear marcadores para cada combinación origen-aerolínea
@@ -2542,8 +2562,8 @@ function renderMap(flights, highlightedFlight = null) {
     const flightRoutes = {};
     validFlights.forEach(flight => {
         const airlineCode = flight.flightNumber.substring(0, 2).toUpperCase();
-        const origin = flight.origin || 'Buenos Aires';
-        const destination = flight.destination;
+        const origin = normalizeOriginCity(flight.origin || 'Buenos Aires');
+        const destination = normalizeDestinationCity(flight.destination || 'Desconocido');
         const key = `${origin}_${destination}_${airlineCode}`;
         if (!flightRoutes[key]) {
             flightRoutes[key] = {
@@ -2553,7 +2573,7 @@ function renderMap(flights, highlightedFlight = null) {
                 flights: []
             };
         }
-        flightRoutes[key].flights.push(flight);
+        flightRoutes[key].flights.push({ ...flight, origin, destination });
     });
 
     // Crear líneas punteadas por ruta
@@ -2583,14 +2603,15 @@ function renderMap(flights, highlightedFlight = null) {
     // Agrupar vuelos por destino para crear marcadores
     const flightsByDestination = {};
     validFlights.forEach(flight => {
-        if (!flightsByDestination[flight.destination]) {
-            flightsByDestination[flight.destination] = {};
+        const normalizedDestination = normalizeDestinationCity(flight.destination || 'Desconocido');
+        if (!flightsByDestination[normalizedDestination]) {
+            flightsByDestination[normalizedDestination] = {};
         }
         const airlineCode = flight.flightNumber.substring(0, 2).toUpperCase();
-        if (!flightsByDestination[flight.destination][airlineCode]) {
-            flightsByDestination[flight.destination][airlineCode] = [];
+        if (!flightsByDestination[normalizedDestination][airlineCode]) {
+            flightsByDestination[normalizedDestination][airlineCode] = [];
         }
-        flightsByDestination[flight.destination][airlineCode].push(flight);
+        flightsByDestination[normalizedDestination][airlineCode].push({ ...flight, destination: normalizedDestination });
     });
 
     // Crear marcadores de destino
