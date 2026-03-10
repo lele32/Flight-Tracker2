@@ -393,6 +393,15 @@ function getFlightDestinationCoords(flight) {
     });
 }
 
+function calculateRouteDistanceKm(originCity, destinationCity, fallbackDistance = 1000) {
+    const originCoords = getCityCoordinates(normalizeOriginCity(originCity || 'Buenos Aires'));
+    const destinationCoords = getCityCoordinates(normalizeDestinationCity(destinationCity || 'Desconocido'));
+    if (isValidLatLng(originCoords) && isValidLatLng(destinationCoords)) {
+        return Math.max(100, Math.round(distanceKm(originCoords, destinationCoords)));
+    }
+    return Math.max(100, Number(fallbackDistance || 1000));
+}
+
 const demoFallbackFlights = [
     { origin: 'Buenos Aires', destination: 'Montevideo', distance: 230, date: '2026-01-12', country: 'Uruguay', flightNumber: 'AR1388', category: 'Personal', rating: 5, durationHours: 1.2 },
     { origin: 'Buenos Aires', destination: 'Santiago', distance: 1130, date: '2026-01-25', country: 'Chile', flightNumber: 'LA8000', category: 'Personal', rating: 4, durationHours: 2.3 },
@@ -549,7 +558,7 @@ async function lookupFlightWithFallback(flightNumber) {
     return {
         origin: normalizeOriginCity(localResult.origin || 'Buenos Aires'),
         destination,
-        distance: Math.max(100, Number(localResult.distance || 1000)),
+        distance: calculateRouteDistanceKm(localResult.origin || 'Buenos Aires', destination, localResult.distance),
         country,
         departureIata: null,
         arrivalIata: null,
@@ -2639,36 +2648,6 @@ async function setupForm() {
         flightError.style.display = 'none';
     };
 
-    const buildManualFlightData = (flightNumberValue) => {
-        const originInput = prompt('No encontramos ese vuelo automaticamente. Ingresa ciudad de origen:', 'Bogotá');
-        if (originInput === null) return null;
-        const destinationInput = prompt('Ingresa ciudad de destino:', 'Buenos Aires');
-        if (destinationInput === null) return null;
-        const countryInput = prompt('Ingresa pais destino:', normalizeCountryName('', destinationInput));
-        if (countryInput === null) return null;
-        const distanceInput = prompt('Ingresa distancia aproximada en km:', '3000');
-        if (distanceInput === null) return null;
-
-        const distance = Number(distanceInput);
-        if (!originInput.trim() || !destinationInput.trim() || !countryInput.trim() || !Number.isFinite(distance) || distance <= 0) {
-            alert('Datos manuales invalidos. Vuelve a intentarlo.');
-            return null;
-        }
-
-        return {
-            origin: normalizeOriginCity(originInput.trim()),
-            destination: normalizeDestinationCity(destinationInput.trim()),
-            distance: Math.round(distance),
-            country: normalizeCountryName(countryInput.trim(), destinationInput.trim()),
-            departureIata: String(flightNumberValue || '').substring(0, 2).toUpperCase() || null,
-            arrivalIata: null,
-            originLat: null,
-            originLng: null,
-            destinationLat: null,
-            destinationLng: null
-        };
-    };
-
     flightNumberInput.addEventListener('blur', async () => {
         const flightNumber = flightNumberInput.value.trim();
         if (flightNumber.length >= 3) {
@@ -2679,20 +2658,9 @@ async function setupForm() {
                 setFlightInfoPanel(flightData);
                 submitBtn.disabled = false;
             } else {
-                const useManualData = confirm('No pudimos reconocer el vuelo automaticamente. ¿Quieres cargarlo manualmente ahora?');
-                if (useManualData) {
-                    const manualData = buildManualFlightData(flightNumber);
-                    if (manualData) {
-                        currentFlightData = manualData;
-                        setFlightInfoPanel(manualData);
-                        submitBtn.disabled = false;
-                        return;
-                    }
-                }
-
                 flightInfo.style.display = 'none';
                 flightError.style.display = 'block';
-                flightError.textContent = '❌ Vuelo no encontrado. Puedes reintentar o cargarlo manualmente.';
+                flightError.textContent = '❌ Vuelo no encontrado en proveedores ni fallback local.';
                 submitBtn.disabled = true;
                 currentFlightData = null;
             }
