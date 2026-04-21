@@ -81,7 +81,12 @@ exports.lookupFlight = onRequest({ region: 'us-central1', cors: true }, async (r
         return;
     }
 
-    const apiKey = '737c0c899deb095b6fa805974f9c2b7b';
+    const apiKey = process.env.AVIATIONSTACK_API_KEY;
+    if (!apiKey) {
+        logger.error('Missing AVIATIONSTACK_API_KEY environment variable');
+        res.status(500).json({ error: 'api-key-not-configured' });
+        return;
+    }
 
     try {
         const flightsUrl = `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(apiKey)}&flight_iata=${encodeURIComponent(flightNumberRaw)}&limit=10`;
