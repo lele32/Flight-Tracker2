@@ -1178,7 +1178,7 @@ button:disabled.is-busy {
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    z-index: 999;
+    z-index: 1300;
 }
 
 #db-modal {
@@ -1188,7 +1188,7 @@ button:disabled.is-busy {
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    z-index: 1000;
+    z-index: 1300;
 }
 
 #db-modal-overlay {
@@ -1342,6 +1342,13 @@ button:disabled.is-busy {
     border-radius: 6px;
     padding: 0.34rem 0.4rem;
     font-size: 0.79rem;
+}
+
+.db-input:disabled,
+.db-select:disabled,
+.db-btn:disabled {
+    cursor: wait;
+    opacity: 0.64;
 }
 
 .db-actions {

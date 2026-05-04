@@ -2540,6 +2540,20 @@ function setupDatabaseManager() {
     const resetBtn = document.getElementById('db-reset-all');
     let lastFocusedElement = null;
 
+    const setDatabaseRowBusy = (row, activeButton, isBusy, busyText) => {
+        if (!row) return;
+        row.querySelectorAll('.db-input, .db-select').forEach((field) => {
+            field.disabled = isBusy;
+        });
+        row.querySelectorAll('button[data-action]').forEach((rowButton) => {
+            if (rowButton === activeButton) {
+                setButtonBusy(rowButton, isBusy, busyText);
+            } else {
+                rowButton.disabled = isBusy;
+            }
+        });
+    };
+
     const openModal = () => {
         if (!ensureAuthenticated()) return;
         lastFocusedElement = document.activeElement;
@@ -2600,8 +2614,7 @@ function setupDatabaseManager() {
             return;
         }
 
-        // Prevenir doble-click y detectar duplicados antes de guardar
-        if (dbAddSubmit) dbAddSubmit.disabled = true;
+        setButtonBusy(dbAddSubmit, true, 'Validando...');
         const newSig = buildFlightSignature({ flightNumber, date, origin, destination, distance });
         const isDuplicate = allFlights.some(f => buildFlightSignature(f) === newSig);
         if (isDuplicate) {
@@ -2611,11 +2624,12 @@ function setupDatabaseManager() {
                 confirmText: 'Guardar igual'
             });
             if (!proceed) {
-                if (dbAddSubmit) dbAddSubmit.disabled = false;
+                setButtonBusy(dbAddSubmit, false);
                 return;
             }
         }
 
+        setButtonBusy(dbAddSubmit, true, 'Agregando...');
         try {
             await addDoc(flightsRef, {
                 origin,
@@ -2633,14 +2647,14 @@ function setupDatabaseManager() {
             document.getElementById('db-origin').value = 'Buenos Aires';
             document.getElementById('db-category').value = 'Personal';
             document.getElementById('db-rating').value = '5';
-            if (dbAddSubmit) dbAddSubmit.disabled = false;
             await loadFlights();
             renderDatabaseTable(allFlights);
             showToast(`Vuelo ${flightNumber} agregado manualmente.`, 'success');
         } catch (error) {
             console.error('Error agregando vuelo manual:', error);
             showToast('No se pudo agregar el vuelo manualmente.', 'error');
-            if (dbAddSubmit) dbAddSubmit.disabled = false;
+        } finally {
+            setButtonBusy(dbAddSubmit, false);
         }
     });
 
@@ -2658,6 +2672,7 @@ function setupDatabaseManager() {
             return;
         }
 
+        setButtonBusy(resetBtn, true, 'Reseteando...');
         try {
             const snapshot = await getDocs(flightsRef);
             if (snapshot.empty) {
@@ -2675,6 +2690,8 @@ function setupDatabaseManager() {
         } catch (error) {
             console.error('Error reseteando la base de datos:', error);
             showToast('No se pudo resetear la base de datos.', 'error');
+        } finally {
+            setButtonBusy(resetBtn, false);
         }
     });
 
@@ -2700,6 +2717,7 @@ function setupDatabaseManager() {
                 showToast('Inicia sesión para eliminar registros.', 'error');
                 return;
             }
+            setDatabaseRowBusy(row, button, true, 'Eliminando...');
             try {
                 await deleteDoc(doc(window.db, 'users', currentUser.uid, 'flights', flightId));
                 await loadFlights();
@@ -2708,6 +2726,8 @@ function setupDatabaseManager() {
             } catch (error) {
                 console.error('Error eliminando vuelo:', error);
                 showToast('No se pudo eliminar el registro.', 'error');
+            } finally {
+                setDatabaseRowBusy(row, button, false);
             }
             return;
         }
@@ -2736,6 +2756,7 @@ function setupDatabaseManager() {
                     showToast('Inicia sesión para actualizar registros.', 'error');
                     return;
                 }
+                setDatabaseRowBusy(row, button, true, 'Guardando...');
                 await updateDoc(doc(window.db, 'users', currentUser.uid, 'flights', flightId), payload);
                 await loadFlights();
                 renderDatabaseTable(allFlights);
@@ -2743,6 +2764,8 @@ function setupDatabaseManager() {
             } catch (error) {
                 console.error('Error actualizando vuelo:', error);
                 showToast('No se pudo actualizar el registro.', 'error');
+            } finally {
+                setDatabaseRowBusy(row, button, false);
             }
         }
     });
