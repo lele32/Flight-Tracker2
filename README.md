@@ -37,6 +37,7 @@ Una aplicación web simple para rastrear y visualizar información de vuelos usa
 - Configuración de API key: variable de entorno `AVIATIONSTACK_API_KEY` en Vercel.
 - Configuración Firebase: variable opcional `FIREBASE_PROJECT_ID` en Vercel. Si no existe, se usa `flightracker-f5493`.
 - Autenticación: requiere `Authorization: Bearer <Firebase ID token>`.
+- Headers de seguridad estáticos: `vercel.json` define CSP, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` y HSTS para el hosting en Vercel.
 
 ## Vuelos Disponibles
 

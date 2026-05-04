@@ -52,6 +52,7 @@ let isHeatmapMode = false;
 let heatmapLayer = null;
 let isNetworkMode = false;
 let networkGraph = null;
+let networkLayout = null;
 let networkMinFrequency = 1;
 let currentUser = null;
 const googleProvider = new GoogleAuthProvider();
@@ -1840,6 +1841,15 @@ function setNetworkStatus(message, tone = 'idle') {
     statusEl.classList.add(`status-${tone}`);
 }
 
+function setTimelineStatus(message, tone = 'idle') {
+    const statusEl = document.getElementById('timeline-status');
+    if (!statusEl) return;
+
+    statusEl.textContent = message;
+    statusEl.classList.remove('status-idle', 'status-loading', 'status-ok', 'status-error');
+    statusEl.classList.add(`status-${tone}`);
+}
+
 function enableNetworkMode() {
     const networkBtn = document.getElementById('toggle-network');
     const mapEl = document.getElementById('map');
@@ -1859,6 +1869,7 @@ function enableNetworkMode() {
 
     isNetworkMode = true;
     networkBtn?.classList.add('active');
+    networkBtn?.setAttribute('aria-pressed', 'true');
     mapEl.classList.add('network-background');
     cyEl.classList.add('active');
     panelEl?.classList.add('active');
@@ -1877,10 +1888,16 @@ function disableNetworkMode(restoreMap = true) {
 
     isNetworkMode = false;
     networkBtn?.classList.remove('active');
+    networkBtn?.setAttribute('aria-pressed', 'false');
     mapEl?.classList.remove('network-background');
     cyEl?.classList.remove('active');
     panelEl?.classList.remove('active');
     frequencyControl?.classList.remove('active');
+
+    if (networkLayout) {
+        networkLayout.stop();
+        networkLayout = null;
+    }
 
     if (networkGraph) {
         networkGraph.destroy();
@@ -1912,6 +1929,11 @@ function renderNetworkGraph(flights) {
     if (!cyEl) {
         setNetworkStatus('Contenedor no disponible', 'error');
         return;
+    }
+
+    if (networkLayout) {
+        networkLayout.stop();
+        networkLayout = null;
     }
 
     if (networkGraph) {
@@ -2083,20 +2105,22 @@ function renderNetworkGraph(flights) {
                 }
             }
         ],
-        layout: {
-            name: 'cose',
-            animate: true,
-            animationDuration: 900,
-            fit: true,
-            padding: 36,
-            randomize: true,
-            idealEdgeLength: 140,
-            nodeRepulsion: 700000,
-            edgeElasticity: 120,
-            gravity: 0.65,
-            numIter: 1200
-        }
+        layout: { name: 'preset' }
     });
+
+    networkLayout = networkGraph.layout({
+        name: 'cose',
+        animate: false,
+        fit: true,
+        padding: 36,
+        randomize: true,
+        idealEdgeLength: 140,
+        nodeRepulsion: 700000,
+        edgeElasticity: 120,
+        gravity: 0.65,
+        numIter: 1200
+    });
+    networkLayout.run();
 
     networkGraph.on('tap', 'node', (evt) => {
         const node = evt.target.data();
@@ -2252,7 +2276,10 @@ function renderHeatmap() {
 
             isHeatmapMode = true;
             const btn = document.getElementById('toggle-heatmap');
-            if (btn) btn.classList.add('active');
+            if (btn) {
+                btn.classList.add('active');
+                btn.setAttribute('aria-pressed', 'true');
+            }
 
             if (matchedCountries === 0) {
                 setHeatmapStatus('0 países coloreados', 'error');
@@ -2275,7 +2302,10 @@ function removeHeatmap() {
     
     isHeatmapMode = false;
     const btn = document.getElementById('toggle-heatmap');
-    if (btn) btn.classList.remove('active');
+    if (btn) {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-pressed', 'false');
+    }
     setHeatmapStatus('Heatmap apagado', 'idle');
     
     // Re-renderizar el mapa normal
@@ -2359,7 +2389,6 @@ function startAnimationMode() {
     }
 
     const toggleBtn = document.getElementById('toggle-animated-mode');
-    const status = document.getElementById('timeline-status');
 
     const timelineFlights = [...lastFilteredFlights].sort((a, b) => {
         const dateCompare = new Date(a.date) - new Date(b.date);
@@ -2369,8 +2398,9 @@ function startAnimationMode() {
 
     isAnimationMode = true;
     toggleBtn?.classList.add('active');
+    toggleBtn?.setAttribute('aria-pressed', 'true');
     if (toggleBtn) toggleBtn.textContent = 'Detener';
-    if (status) status.textContent = `Timeline 1/${timelineFlights.length}`;
+    setTimelineStatus(`Timeline 1/${timelineFlights.length}`, 'loading');
 
     let index = 0;
     const processNextFlight = () => {
@@ -2384,9 +2414,7 @@ function startAnimationMode() {
         const currentFlight = timelineFlights[index];
         const partialFlights = timelineFlights.slice(0, index + 1);
 
-        if (status) {
-            status.textContent = `Timeline ${index + 1}/${timelineFlights.length} • ${currentFlight.date} • ${currentFlight.flightNumber}`;
-        }
+        setTimelineStatus(`Timeline ${index + 1}/${timelineFlights.length} • ${currentFlight.date} • ${currentFlight.flightNumber}`, 'loading');
 
         index += 1;
 
@@ -2408,12 +2436,12 @@ function stopAnimationMode(completed) {
     }
 
     const toggleBtn = document.getElementById('toggle-animated-mode');
-    const status = document.getElementById('timeline-status');
 
     isAnimationMode = false;
     toggleBtn?.classList.remove('active');
+    toggleBtn?.setAttribute('aria-pressed', 'false');
     if (toggleBtn) toggleBtn.textContent = 'Modo Animado';
-    if (status) status.textContent = completed ? 'Timeline finalizado' : 'Modo normal';
+    setTimelineStatus(completed ? 'Timeline finalizado' : 'Modo normal', completed ? 'ok' : 'idle');
 
     if (lastFilteredFlights.length && !isNetworkMode) {
         renderMap(lastFilteredFlights);
@@ -2444,7 +2472,7 @@ function animateFlight(flight, sourceFlights, callback) {
     // Crear marcador de avión como emoji
     const planeMarker = L.marker(originCoords, {
         icon: L.divIcon({
-            html: '<div style="font-size: 28px; transform: rotate(45deg); filter: drop-shadow(0 0 4px rgba(255,255,255,0.6));">✈️</div>',
+            html: '<div class="animated-plane-icon">✈️</div>',
             iconSize: [32, 32],
             iconAnchor: [16, 16],
             className: 'animated-plane'
@@ -2513,21 +2541,52 @@ function buildAirlineLogoDataUri(airlineCode) {
 
 function getAirlineLogoHTML(airlineCode, airlineName, size = 16) {
     const logoUrl = airlineBrandAssets[airlineCode]?.logo || buildAirlineLogoDataUri(airlineCode);
-    const safeName = airlineName || airlineCode;
+    const safeName = escapeHtml(airlineName || airlineCode);
+    const safeCode = escapeHtml(airlineCode || 'XX');
     const fallbackSize = Math.max(9, size - 6);
 
     if (!logoUrl) {
-        return `<span style="width:${size}px;height:${size}px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#1f2937;color:#f9fafb;font-size:${Math.max(9, size - 6)}px;font-weight:700;">${airlineCode}</span>`;
+        return `<span class="airline-logo-fallback" style="width:${size}px;height:${size}px;font-size:${fallbackSize}px;">${safeCode}</span>`;
     }
 
-    return `<span style="width:${size}px;height:${size}px;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;">
-        <img src="${logoUrl}" alt="${safeName}" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" style="border-radius:50%;background:#fff;object-fit:contain;display:block;" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
-        <span style="display:none;width:${size}px;height:${size}px;border-radius:50%;align-items:center;justify-content:center;background:#1f2937;color:#f9fafb;font-size:${fallbackSize}px;font-weight:700;">${airlineCode}</span>
+    return `<span class="airline-logo-wrap" style="width:${size}px;height:${size}px;">
+        <img class="airline-logo-img" src="${escapeHtml(logoUrl)}" alt="${safeName}" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer">
+        <span class="airline-logo-fallback" style="width:${size}px;height:${size}px;font-size:${fallbackSize}px;">${safeCode}</span>
     </span>`;
 }
 
 function getAirlineMarkerBadgeHTML(airlineCode, airlineName) {
     return `<span class="marker-logo-badge">${getAirlineLogoHTML(airlineCode, airlineName, 12)}</span>`;
+}
+
+function renderPopupEditButton(flightId) {
+    const safeId = String(flightId || '');
+    if (!safeId || safeId.startsWith('demo-')) return '';
+
+    return `<button class="popup-edit-btn" type="button" data-flight-id="${escapeHtml(safeId)}" aria-label="Editar vuelo">Editar</button>`;
+}
+
+function renderPopupFlightRow(flight, options = {}) {
+    const flightNumber = escapeHtml(flight.flightNumber || 'N/A');
+    const origin = escapeHtml(flight.origin || 'Buenos Aires');
+    const destination = escapeHtml(flight.destination || 'Desconocido');
+    const country = escapeHtml(flight.country || 'Desconocido');
+    const date = escapeHtml(flight.date || 'Sin fecha');
+    const distance = Number(flight.distance) || 0;
+    const duration = escapeHtml(formatDuration(flight.durationHours));
+    const category = escapeHtml(getCategoryBadge(flight.category));
+    const rating = escapeHtml(renderRatingStars(flight.rating));
+    const airlineCode = String(flight.flightNumber || '').substring(0, 2).toUpperCase();
+    const color = options.color || airlineColors[airlineCode] || '#0A84FF';
+    const title = options.compact
+        ? `<strong class="popup-flight-code" style="color:${color};">${flightNumber}</strong> desde ${origin}`
+        : `<strong class="popup-flight-code">${flightNumber}</strong> ${origin} -> ${getCountryFlag(country)} ${destination}`;
+
+    return `<div class="popup-flight-row">
+        ${renderPopupEditButton(flight.id)}
+        <div>${title}</div>
+        <small>${date} - ${distance.toLocaleString()} km - ${duration} - ${category} - ${rating}</small>
+    </div>`;
 }
 
 function setupDatabaseManager() {
@@ -2770,12 +2829,12 @@ function setupDatabaseManager() {
         }
     });
 
-    // Exponer globalmente para que los botones del mapa puedan abrir y desplazarse al vuelo.
-    window.openFlightEdit = (flightId) => {
+    const openFlightEdit = (flightId) => {
         map?.closePopup();
         openModal();
         setTimeout(() => {
-            const saveBtn = document.querySelector(`button[data-action="save"][data-id="${flightId}"]`);
+            const saveBtn = Array.from(document.querySelectorAll('button[data-action="save"]'))
+                .find((button) => button.dataset.id === String(flightId));
             if (saveBtn) {
                 const row = saveBtn.closest('tr');
                 if (row) {
@@ -2786,6 +2845,14 @@ function setupDatabaseManager() {
             }
         }, 250);
     };
+
+    document.addEventListener('click', (event) => {
+        const editButton = event.target.closest('.popup-edit-btn');
+        if (!editButton) return;
+
+        event.stopPropagation();
+        openFlightEdit(editButton.dataset.flightId);
+    });
 }
 
 function renderDatabaseTable(flights) {
@@ -2807,24 +2874,24 @@ function renderDatabaseTable(flights) {
 
         return `
             <tr>
-                <td><input class="db-input" data-field="flightNumber" value="${flightNumber}"></td>
-                <td><input class="db-input" data-field="date" type="date" value="${date}"></td>
-                <td><input class="db-input" data-field="origin" value="${origin}"></td>
-                <td><input class="db-input" data-field="destination" value="${destination}"></td>
-                <td><input class="db-input" data-field="country" value="${country}"></td>
-                <td><input class="db-input" data-field="distance" type="number" min="100" step="10" value="${distance}"></td>
-                <td>
+                <td data-label="Vuelo"><input class="db-input" data-field="flightNumber" value="${flightNumber}"></td>
+                <td data-label="Fecha"><input class="db-input" data-field="date" type="date" value="${date}"></td>
+                <td data-label="Origen"><input class="db-input" data-field="origin" value="${origin}"></td>
+                <td data-label="Destino"><input class="db-input" data-field="destination" value="${destination}"></td>
+                <td data-label="País"><input class="db-input" data-field="country" value="${country}"></td>
+                <td data-label="Km"><input class="db-input" data-field="distance" type="number" min="100" step="10" value="${distance}"></td>
+                <td data-label="Categoría">
                     <select class="db-select" data-field="category">
                         <option value="Personal" ${category === 'Personal' ? 'selected' : ''}>Personal</option>
                         <option value="Trabajo" ${category === 'Trabajo' ? 'selected' : ''}>Trabajo</option>
                     </select>
                 </td>
-                <td>
+                <td data-label="Rating">
                     <select class="db-select" data-field="rating">
                         ${[1, 2, 3, 4, 5].map((value) => `<option value="${value}" ${value === rating ? 'selected' : ''}>${value}</option>`).join('')}
                     </select>
                 </td>
-                <td>
+                <td data-label="Acciones">
                     <div class="db-actions">
                         <button class="db-btn save" data-action="save" data-id="${id}">Guardar</button>
                         <button class="db-btn delete" data-action="delete" data-id="${id}">Eliminar</button>
@@ -2842,6 +2909,15 @@ function escapeHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function renderDashboardEmptyState(listElement, message) {
+    if (!listElement) return;
+    const item = document.createElement('li');
+    item.className = 'dashboard-empty-state';
+    item.setAttribute('role', 'status');
+    item.textContent = message;
+    listElement.appendChild(item);
 }
 
 function lookupFlight(flightNumber) {
@@ -3371,6 +3447,9 @@ function processFlights(flights) {
         .sort((a, b) => b[1].count - a[1].count);
     const destList = document.getElementById('frequent-destinations');
     destList.innerHTML = '';
+    if (!sortedDestinations.length) {
+        renderDashboardEmptyState(destList, 'Sin destinos para este filtro.');
+    }
     sortedDestinations.slice(0, 5).forEach(([dest, data]) => {
         const li = document.createElement('li');
         li.textContent = `${getCountryFlag(data.country)} ${dest}: ${data.count}`;
@@ -3396,7 +3475,11 @@ function processFlights(flights) {
     });
     const countryList = document.getElementById('visited-countries');
     countryList.innerHTML = '';
-    Array.from(countries).sort().slice(0, 5).forEach(country => {
+    const sortedCountries = Array.from(countries).sort();
+    if (!sortedCountries.length) {
+        renderDashboardEmptyState(countryList, 'Sin países para este filtro.');
+    }
+    sortedCountries.slice(0, 5).forEach(country => {
         const li = document.createElement('li');
         li.textContent = `${getCountryFlag(country)} ${country}`;
         countryList.appendChild(li);
@@ -3448,15 +3531,25 @@ function processFlights(flights) {
     const airlineList = document.getElementById('top-airlines');
     airlineList.innerHTML = '';
 
+    if (!rankedAirlines.length) {
+        renderDashboardEmptyState(airlineList, 'Sin aerolíneas para este filtro.');
+    }
+
     rankedAirlines.slice(0, 5).forEach(airline => {
         const li = document.createElement('li');
+        const escapedAirlineName = escapeHtml(airline.name);
+        const flightLabel = airline.flights === 1 ? '1 vuelo' : `${airline.flights} vuelos`;
+        li.className = 'airline-rank-item';
         li.innerHTML = `
-            <span style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
-                <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+            <span class="airline-rank-row">
+                <span class="airline-rank-main">
                     ${getAirlineLogoHTML(airline.code, airline.name, 16)}
-                    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${airline.name}</span>
+                    <span class="airline-rank-name" title="${escapedAirlineName}">${escapedAirlineName}</span>
                 </span>
-                <span style="font-size:12px;color:#d1d5db;">${renderRatingStars(Math.round(airline.avgRating))} (${airline.avgRating.toFixed(1)})</span>
+                <span class="airline-rank-meta">
+                    <span class="airline-rank-score" aria-label="Rating promedio ${airline.avgRating.toFixed(1)} de 5">${renderRatingStars(Math.round(airline.avgRating))} ${airline.avgRating.toFixed(1)}</span>
+                    <span class="airline-rank-count">${flightLabel}</span>
+                </span>
             </span>
         `;
         airlineList.appendChild(li);
@@ -3528,21 +3621,21 @@ function renderMap(flights, highlightedFlight = null) {
         const topDestination = airlineFlights[0]?.destination;
         const topCountry = airlineFlights[0]?.country;
 
+        const safeAirlineName = escapeHtml(airlineName);
+        const safeOrigin = escapeHtml(origin);
+        const safeTopDestination = escapeHtml(topDestination || 'N/A');
+
         // Crear popup para el marcador de origen
         const originPopupContent = `
-            <div style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; min-width: 250px;">
-                <h3 style="margin: 0 0 10px 0; color: ${airlineColor}; display:flex; align-items:center; gap:8px;">${getAirlineLogoHTML(airlineCode, airlineName, 18)} <span>🏠 ${airlineName} - ${origin}</span></h3>
-                <p style="margin: 5px 0; color: #d1d5db;"><strong>Vuelos Salientes:</strong> ${totalFlights}</p>
-                <p style="margin: 5px 0; color: #d1d5db;"><strong>Distancia Total:</strong> ${totalDistance.toLocaleString()} km</p>
-                <p style="margin: 5px 0; color: #d1d5db;"><strong>Ruta destacada:</strong> ${getCountryFlag(topCountry)} ${topDestination || 'N/A'}</p>
-                <p style="margin: 5px 0; color: #d1d5db;"><strong>Rating promedio:</strong> ${renderRatingStars(Math.round(averageRating))}</p>
-                <hr style="border: none; border-top: 1px solid #343434; margin: 10px 0;">
-                <div style="max-height: 200px; overflow-y: auto; font-size: 12px;">
-                    ${airlineFlights.map(f => `<div style="padding: 5px 0; border-bottom: 1px solid #2a2a2a; color: #ebebeb;">
-                        ${f.id && !f.id.startsWith('demo-') ? `<button onclick="event.stopPropagation(); window.openFlightEdit('${f.id}')" style="float:right; background:transparent; border:1px solid #555; border-radius:4px; color:#aaa; cursor:pointer; font-size:11px; padding:1px 6px; margin-left:8px;">✏️</button>` : ''}
-                        <strong>${f.flightNumber}</strong> ${f.origin || 'Buenos Aires'} → ${getCountryFlag(f.country)} ${f.destination}<br>
-                        <small style="color: #a3a3a3;">${f.date} - ${f.distance} km - ${formatDuration(f.durationHours)} - ${getCategoryBadge(f.category)} - ${renderRatingStars(f.rating)}</small>
-                    </div>`).join('')}
+            <div class="map-popup origin-popup">
+                <h3 style="color: ${airlineColor};">${getAirlineLogoHTML(airlineCode, airlineName, 18)} <span>${safeAirlineName} - ${safeOrigin}</span></h3>
+                <p><strong>Vuelos salientes:</strong> ${totalFlights}</p>
+                <p><strong>Distancia total:</strong> ${totalDistance.toLocaleString()} km</p>
+                <p><strong>Ruta destacada:</strong> ${getCountryFlag(topCountry)} ${safeTopDestination}</p>
+                <p><strong>Rating promedio:</strong> ${escapeHtml(renderRatingStars(Math.round(averageRating)))}</p>
+                <hr>
+                <div class="popup-scroll">
+                    ${airlineFlights.map((flight) => renderPopupFlightRow(flight)).join('')}
                 </div>
             </div>
         `;
@@ -3639,30 +3732,33 @@ function renderMap(flights, highlightedFlight = null) {
 
             const airlineDetails = Object.entries(airlines).map(([airlineCode, flightList]) => {
                 const airlineName = flightDatabase[airlineCode]?.airline || airlineCode;
-                const flightNumbers = flightList.map(f => f.flightNumber).join(', ');
-                return `<div style="margin: 8px 0; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 5px; border-left: 3px solid ${airlineColors[airlineCode] || '#0A84FF'};">
-                    <strong style="color: ${airlineColors[airlineCode] || '#0A84FF'}; display:flex; align-items:center; gap:7px;">${getAirlineLogoHTML(airlineCode, airlineName, 16)} <span>${airlineName}</span></strong><br>
-                    <small style="color: #d4d4d4;">Vuelos: ${flightNumbers}</small><br>
-                    <small style="color: #d4d4d4;">Cantidad: ${flightList.length}</small><br>
-                    <small style="color: #d4d4d4;">Categorias: ${Array.from(new Set(flightList.map(f => getCategoryBadge(f.category)))).join(', ')}</small>
+                const flightNumbers = escapeHtml(flightList.map((flight) => flight.flightNumber || 'N/A').join(', '));
+                const categories = escapeHtml(Array.from(new Set(flightList.map(f => getCategoryBadge(f.category)))).join(', '));
+                const detailColor = airlineColors[airlineCode] || '#0A84FF';
+                return `<div class="popup-airline-detail" style="border-left-color: ${detailColor};">
+                    <strong style="color: ${detailColor};">${getAirlineLogoHTML(airlineCode, airlineName, 16)} <span>${escapeHtml(airlineName)}</span></strong>
+                    <small>Vuelos: ${flightNumbers}</small>
+                    <small>Cantidad: ${flightList.length}</small>
+                    <small>Categorias: ${categories}</small>
                 </div>`;
             }).join('');
 
+            const destinationCountry = Object.values(airlines)[0][0]?.country;
+            const safeDestination = escapeHtml(destination);
+            const flatFlights = Object.values(airlines).flat();
+
             const popupContent = `
-                <div style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; min-width: 280px;">
-                    <h3 style="margin: 0 0 10px 0; color: #0f5ba8;">✈️ ${getCountryFlag(Object.values(airlines)[0][0]?.country)} ${destination}</h3>
-                    <p style="margin: 5px 0; color: #d1d5db;"><strong>Total de Vuelos:</strong> ${totalFlights}</p>
-                    <p style="margin: 5px 0; color: #d1d5db;"><strong>Distancia Total:</strong> ${totalDistance.toLocaleString()} km</p>
-                    <p style="margin: 5px 0; color: #d1d5db;"><strong>Rating promedio:</strong> ${renderRatingStars(Math.round(averageRouteRating))}</p>
-                    <hr style="border: none; border-top: 1px solid #343434; margin: 10px 0;">
-                    <div style="max-height: 250px; overflow-y: auto; font-size: 12px;">
+                <div class="map-popup destination-popup">
+                    <h3>${getCountryFlag(destinationCountry)} ${safeDestination}</h3>
+                    <p><strong>Total de vuelos:</strong> ${totalFlights}</p>
+                    <p><strong>Distancia total:</strong> ${totalDistance.toLocaleString()} km</p>
+                    <p><strong>Rating promedio:</strong> ${escapeHtml(renderRatingStars(Math.round(averageRouteRating)))}</p>
+                    <hr>
+                    <div class="popup-scroll">
                         ${airlineDetails}
-                        <hr style="border: none; border-top: 1px solid #343434; margin: 10px 0;">
-                        <div style="font-weight: 600; margin-bottom: 8px; color: #e7e7e7;">Todos los vuelos:</div>
-                        ${Object.values(airlines).flat().map(f => `<div style="padding: 5px 0; border-bottom: 1px solid #2a2a2a; color: #d4d4d4;">
-                            ${f.id && !f.id.startsWith('demo-') ? `<button onclick="event.stopPropagation(); window.openFlightEdit('${f.id}')" style="float:right; background:transparent; border:1px solid #555; border-radius:4px; color:#aaa; cursor:pointer; font-size:11px; padding:1px 6px; margin-left:8px;">✏️</button>` : ''}
-                            <strong style="color: ${airlineColors[f.flightNumber.substring(0, 2).toUpperCase()] || '#0A84FF'};">${f.flightNumber}</strong> desde ${f.origin || 'Buenos Aires'} - ${f.date} - ${f.distance} km - ${formatDuration(f.durationHours)} - ${getCategoryBadge(f.category)} - ${renderRatingStars(f.rating)}
-                        </div>`).join('')}
+                        <hr>
+                        <div class="popup-section-title">Todos los vuelos</div>
+                        ${flatFlights.map((flight) => renderPopupFlightRow(flight, { compact: true })).join('')}
                     </div>
                 </div>
             `;
@@ -3716,9 +3812,13 @@ function renderMap(flights, highlightedFlight = null) {
         }
     }
 
-    const timelineStatus = document.getElementById('timeline-status');
-    if (timelineStatus && !isAnimationMode) {
-        timelineStatus.textContent = `Modo normal • vuelos ${validFlights.length} • rutas ${renderedRoutes}/${renderedRoutes + skippedRoutes} • destinos ${renderedDestinations}/${renderedDestinations + skippedDestinations}`;
+    if (!isAnimationMode) {
+        if (!validFlights.length) {
+            setTimelineStatus('Modo normal • sin vuelos para este filtro', 'error');
+        } else {
+            const tone = renderedRoutes || renderedDestinations ? 'ok' : 'error';
+            setTimelineStatus(`Modo normal • vuelos ${validFlights.length} • rutas ${renderedRoutes}/${renderedRoutes + skippedRoutes} • destinos ${renderedDestinations}/${renderedDestinations + skippedDestinations}`, tone);
+        }
     }
 }
 

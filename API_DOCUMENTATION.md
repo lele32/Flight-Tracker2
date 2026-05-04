@@ -144,8 +144,14 @@ Respuestas esperadas:
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 X-XSS-Protection: 1; mode=block
+Referrer-Policy: no-referrer
+Permissions-Policy: geolocation=(), microphone=(), camera=()
+Cache-Control: no-store, max-age=0
+Strict-Transport-Security: max-age=31536000; includeSubDomains
 Access-Control-Allow-Origin: [origen permitido]
 ```
+
+El hosting estático de Vercel también aplica headers desde `vercel.json`, incluyendo Content Security Policy, HSTS, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy`.
 
 ### CORS Permitido
 - `https://lele32.github.io` (producción)

@@ -52,7 +52,9 @@
             <h2 id="auth-title">Acceso a tu cuenta</h2>
             <p class="auth-subtitle">Inicia sesión para ver y gestionar solo tus vuelos.</p>
             <div id="auth-form-controls">
+                <label class="sr-only" for="auth-email">Email</label>
                 <input id="auth-email" type="email" placeholder="email@ejemplo.com" autocomplete="email">
+                <label class="sr-only" for="auth-password">Contraseña</label>
                 <input id="auth-password" type="password" placeholder="Contraseña" autocomplete="current-password">
                 <button id="auth-login" type="button">Ingresar</button>
                 <button id="auth-register" type="button">Crear cuenta</button>
@@ -139,6 +141,7 @@
                     </div>
                 </div>
             </div>
+            <p id="coverage-continents-detail" class="coverage-tooltip" title="Sin continentes detectados">Sin continentes detectados</p>
         </div>
     </div>
 
@@ -146,15 +149,15 @@
         <div id="map-header">
             <h2>Live Routes Map</h2>
             <div id="map-actions">
-                <button id="toggle-animated-mode" type="button">Modo Animado</button>
-                <button id="toggle-heatmap" type="button">Heatmap</button>
-                <button id="toggle-network" type="button">Network</button>
+                <button id="toggle-animated-mode" type="button" aria-pressed="false">Modo Animado</button>
+                <button id="toggle-heatmap" type="button" aria-pressed="false">Heatmap</button>
+                <button id="toggle-network" type="button" aria-pressed="false">Network</button>
                 <label id="network-frequency-control" for="network-min-frequency">
                     Min Ruta
                     <input id="network-min-frequency" type="range" min="1" max="8" step="1" value="1">
                     <span id="network-min-frequency-value">1+</span>
                 </label>
-                <span id="timeline-status">Modo normal</span>
+                <span id="timeline-status" class="status-idle">Modo normal</span>
                 <span id="heatmap-status" class="status-idle">Heatmap apagado</span>
                 <span id="network-status" class="status-idle">Network apagado</span>
             </div>
@@ -210,7 +213,7 @@
                 <div id="flight-error" style="display: none; color: #ff6b6b; margin: 1rem 0;"></div>
                 <button type="submit" id="submit-btn" disabled>Registrar Vuelo</button>
             </form>
-            <button id="load-sample">Cargar Datos de Ejemplo</button>
+            <button id="load-sample" type="button">Cargar Datos de Ejemplo</button>
         </div>
     </div>
 
