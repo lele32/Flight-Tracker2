@@ -178,6 +178,8 @@ const cityCoordinates = {
     'Beijing': [39.9042, 116.4074],
     'Shanghái': [31.2304, 121.4737],
     'Shanghai': [31.2304, 121.4737],
+    'Shenzhen': [22.5431, 114.0579],
+    'Wenzhou': [27.9949, 120.6994],
     'Hong Kong': [22.3193, 114.1694],
     'Singapur': [1.3521, 103.8198],
     'Singapore': [1.3521, 103.8198],
@@ -185,6 +187,8 @@ const cityCoordinates = {
     'Kuala Lumpur': [3.1390, 101.6869],
     'Yakarta': [-6.2088, 106.8456],
     'Jakarta': [-6.2088, 106.8456],
+    'Bali': [-8.4095, 115.1889],
+    'Denpasar': [-8.6500, 115.2167],
     'Manila': [14.5995, 120.9842],
     'Delhi': [28.7041, 77.1025],
     'Bombay': [19.0760, 72.8777],
@@ -539,7 +543,7 @@ async function lookupFlightLive(flightNumber) {
             destinationLng: optionalNumber(payload.destinationLng)
         };
     } catch {
-        isLiveLookupAvailable = false;
+        // Un error transitorio de red/token no debe desactivar la API para toda la sesión.
         return null;
     }
 }
@@ -1219,6 +1223,26 @@ const flightDatabase = {
         '8395': { origin: 'Bogotá', destination: 'Buenos Aires', distance: 4680, country: 'Argentina' },
         '87': { origin: 'Bogotá', destination: 'Buenos Aires', distance: 4680, country: 'Argentina' }
     }},
+    // Air Europa
+    'UX': { airline: 'Air Europa', routes: {
+        '41': { origin: 'Madrid', destination: 'Buenos Aires', distance: 10050, country: 'Argentina' },
+        '42': { origin: 'Buenos Aires', destination: 'Madrid', distance: 10050, country: 'España' }
+    }},
+    // Emirates
+    'EK': { airline: 'Emirates', routes: {
+        '247': { origin: 'Dubái', destination: 'Buenos Aires', distance: 13600, country: 'Argentina' },
+        '248': { origin: 'Buenos Aires', destination: 'Dubái', distance: 13600, country: 'Emiratos Árabes' }
+    }},
+    // Air China
+    'CA': { airline: 'Air China', routes: {
+        '129': { origin: 'Pekín', destination: 'Madrid', distance: 9200, country: 'España' },
+        '130': { origin: 'Madrid', destination: 'Pekín', distance: 9200, country: 'China' }
+    }},
+    // Hong Kong Airlines
+    'HX': { airline: 'Hong Kong Airlines', routes: {
+        '201': { origin: 'Hong Kong', destination: 'Bangkok', distance: 1690, country: 'Tailandia' },
+        '285': { origin: 'Hong Kong', destination: 'Shanghái', distance: 1220, country: 'China' }
+    }},
     // JetSmart
     'JA': { airline: 'JetSmart', routes: {
         '3797': { origin: 'Buenos Aires', destination: 'Asunción', distance: 1070, country: 'Paraguay' }
@@ -1241,6 +1265,10 @@ const airlineColors = {
     'JL': '#ED1A3A', // Japan Airlines - Rojo
     'QF': '#E31837', // Qantas - Rojo
     'AV': '#D71920', // Avianca - Rojo
+    'UX': '#c8102e', // Air Europa - Rojo
+    'EK': '#d71920', // Emirates - Rojo
+    'CA': '#c62828', // Air China - Rojo oscuro
+    'HX': '#f59e0b', // Hong Kong Airlines - Amarillo
     'JA': '#FF6600'  // JetSmart - Naranja
 };
 
@@ -1260,6 +1288,10 @@ const airlineBrandAssets = {
     'JL': { logo: null },
     'QF': { logo: null },
     'AV': { logo: null },
+    'UX': { logo: null },
+    'EK': { logo: null },
+    'CA': { logo: null },
+    'HX': { logo: null },
     'JA': { logo: null }
 };
 
@@ -1287,6 +1319,9 @@ const cityToCountryMap = {
     'Milán': 'Italia',
     'Madrid': 'España',
     'Barcelona': 'España',
+    'Mallorca': 'España',
+    'Palma de Mallorca': 'España',
+    'Palma': 'España',
     'Ámsterdam': 'Países Bajos',
     'Tokio': 'Japón',
     'Osaka': 'Japón',
@@ -1366,11 +1401,15 @@ const cityToCountryMap = {
     'Seúl': 'Corea del Sur',
     'Pekín': 'China',
     'Shanghái': 'China',
+    'Shenzhen': 'China',
+    'Wenzhou': 'China',
     'Hong Kong': 'China',
     'Singapur': 'Singapur',
     'Bangkok': 'Tailandia',
     'Kuala Lumpur': 'Malasia',
     'Yakarta': 'Indonesia',
+    'Bali': 'Indonesia',
+    'Denpasar': 'Indonesia',
     'Manila': 'Filipinas',
     'Delhi': 'India',
     'Bombay': 'India',
@@ -1681,6 +1720,15 @@ const cityAliasToCanonical = {
     'berlin': 'Berlín',
     'munich': 'Múnich',
     'milan': 'Milán',
+    'mallorca': 'Mallorca',
+    'palma de mallorca': 'Palma de Mallorca',
+    'palma mallorca': 'Palma de Mallorca',
+    'palma': 'Palma de Mallorca',
+    'bali': 'Bali',
+    'denpasar': 'Denpasar',
+    'shenzhen': 'Shenzhen',
+    'wenzhou': 'Wenzhou',
+    'wehnzou': 'Wenzhou',
     'amsterdam': 'Ámsterdam',
     'tokyo': 'Tokio',
     'sydney': 'Sídney'
@@ -1734,6 +1782,9 @@ const airportKeywordToCity = {
     'malpensa': 'Milán', 'linate': 'Milán',
     'barajas': 'Madrid', 'adolfo suarez': 'Madrid', 'adolfo suárez': 'Madrid',
     'el prat': 'Barcelona',
+    'son sant joan': 'Palma de Mallorca',
+    'palma de mallorca airport': 'Palma de Mallorca',
+    'palma airport': 'Palma de Mallorca',
     'humberto delgado': 'Lisboa', 'portela': 'Lisboa',
     'francisco sa carneiro': 'Porto',
     'frankfurt': 'Fráncfort', 'fraport': 'Fráncfort',
@@ -1783,6 +1834,8 @@ const airportKeywordToCity = {
     'incheon': 'Seúl', 'gimpo': 'Seúl',
     'pudong': 'Shanghái', 'hongqiao': 'Shanghái',
     'capital airport': 'Pekín', 'daxing': 'Pekín',
+    'baoan': 'Shenzhen', 'baoan international': 'Shenzhen',
+    'longwan': 'Wenzhou', 'wenzhou longwan': 'Wenzhou',
     'changi': 'Singapur',
     'suvarnabhumi': 'Bangkok', 'don mueang': 'Bangkok',
     'kuala lumpur international': 'Kuala Lumpur', 'klia': 'Kuala Lumpur',
@@ -1804,6 +1857,7 @@ const airportKeywordToCity = {
     'aeropuerto internacional silvio pettirossi': 'Asunción',
     // IATA codes como palabras clave (fallback)
     'scl': 'Santiago', 'mvd': 'Montevideo', 'aep': 'Buenos Aires', 'eze': 'Buenos Aires',
+    'pmi': 'Palma de Mallorca', 'szx': 'Shenzhen', 'wnz': 'Wenzhou', 'dps': 'Denpasar',
     'asu': 'Asunción',
 };
 
@@ -3268,7 +3322,10 @@ async function setupForm() {
             flightNumberInput.value = flightNumber;
         }
         if (flightNumber.length >= 3) {
-            setLookupStatus('Buscando datos del vuelo...');
+            const hasLiveLookup = Boolean(currentUser) && isLiveLookupAvailable;
+            setLookupStatus(hasLiveLookup
+                ? 'Buscando datos del vuelo...'
+                : 'Sin búsqueda en vivo (inicia sesión o verifica conexión). Probando fallback local...', hasLiveLookup ? 'loading' : 'error');
             submitBtn.disabled = true;
             const flightData = await lookupFlightWithFallback(flightNumber);
             if (flightData) {
